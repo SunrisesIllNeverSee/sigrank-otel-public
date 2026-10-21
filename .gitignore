@@ -1,0 +1,7 @@
+# Your telemetry (never commit)
+data/
+*.jsonl
+*.log
+
+node_modules/
+export/

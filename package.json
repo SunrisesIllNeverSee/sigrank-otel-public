@@ -1,0 +1,11 @@
+{
+  "name": "sigrank-otel",
+  "version": "0.1.0",
+  "description": "Local Claude Code telemetry collector and SigRank dashboard",
+  "private": false,
+  "repository": "github:SunrisesIllNeverSee/sigrank-otel-public",
+  "type": "module",
+  "bin": { "sigrank-otel-cc": "src/cli.mjs" },
+  "engines": { "node": ">=18" },
+  "dependencies": { "token-cascade": "0.2.1" }
+}

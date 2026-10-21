@@ -1,0 +1,909 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tokenpull Live</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;700&family=Silkscreen&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #050605; --panel: #0b0e0a; --panel2: #111a0c; --line: #1f281c; --ink: #dee6d2; --hi: #e9f3df; --muted: #71826a;
+    --lime: #a6ff00; --orange: #ff9a3c; --blue: #3b82f6; --cyan: #00e5ff; --yellow: #ffe600; --violet: #a855f7; --pink: #ff00d4; --red: #ff4d4d;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; overflow: hidden; background: var(--bg); }
+  body { color: var(--ink); font: 11px/1.3 "Geist Mono", ui-monospace, monospace; }
+  .px { font-family: "Silkscreen", "Geist Mono", monospace; letter-spacing: 0.06em; }
+  main {
+    height: 100vh; padding: 8px 12px; display: grid; gap: 7px;
+    grid-template-rows: auto auto auto minmax(0, 1fr);
+    grid-template-columns: 1fr 1fr 1fr 1.25fr;
+    grid-template-areas: "head head head head" "strip strip strip strip" "board board board board" "readout ship tools feed";
+  }
+  header { grid-area: head; display: flex; align-items: center; gap: 14px; }
+  h1 { margin: 0; font-size: 16px; color: var(--hi); font-weight: 400; }
+  h1 b { color: var(--lime); font-weight: 400; }
+  .tag { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.12em; }
+  .live { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 10px; }
+  .dot { width: 7px; height: 7px; background: var(--lime); box-shadow: 0 0 8px var(--lime); animation: pulse 2s infinite; }
+  .dot.off { background: var(--red); box-shadow: 0 0 8px var(--red); animation: none; }
+  @keyframes pulse { 50% { opacity: 0.35; } }
+  .seg { display: inline-flex; border: 1px solid var(--line); }
+  .seg button { background: var(--panel); color: var(--muted); border: 0; border-right: 1px solid var(--line); padding: 4px 10px; font: 10px "Geist Mono", monospace; cursor: pointer; text-transform: uppercase; letter-spacing: 0.06em; }
+  .seg button:last-child { border-right: 0; }
+  .seg button.on { background: var(--lime); color: #050605; font-weight: 700; }
+  .seg.mode button.on { background: var(--orange); }
+  .push { margin-left: auto; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 5px; padding: 7px 10px; min-height: 0; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+  .ph { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.14em; margin-bottom: 5px; flex: none; }
+  .ph::before { content: ""; width: 7px; height: 7px; background: var(--lime); flex: none; }
+  .ph span { margin-left: auto; letter-spacing: 0.04em; text-transform: none; }
+  .ph .tabs { margin-left: auto; display: inline-flex; gap: 2px; }
+  .ph .tabs button { background: none; border: 1px solid var(--line); color: var(--muted); font: 10px "Geist Mono", monospace; padding: 1px 7px; cursor: pointer; text-transform: uppercase; }
+  .ph .tabs button.on { color: #050605; background: var(--lime); border-color: var(--lime); }
+
+  #strip { grid-area: strip; display: grid; grid-template-columns: 1.5fr repeat(7, 1fr); gap: 6px; }
+  #strip .panel { padding: 6px 10px; }
+  .tk { color: var(--muted); font-size: 9px; text-transform: uppercase; letter-spacing: 0.12em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tv { font-size: 16px; color: var(--hi); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tv small { font-size: 9px; color: var(--muted); }
+  .grand { border-color: #3d5a10; background: linear-gradient(90deg, #0f1a05, var(--panel)); }
+  .grand .tv { font-family: "Silkscreen", monospace; font-size: 20px; color: var(--orange); }
+  .grand.y .tv { color: var(--lime); }
+
+  #board { grid-area: board; padding: 0 8px 4px; max-height: 36vh; overflow: auto; }
+  #board thead th { position: sticky; top: 0; background: var(--panel); z-index: 1; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { padding: 3px 7px; text-align: right; white-space: nowrap; }
+  thead th { font-size: 9px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid var(--line); padding-top: 5px; }
+  th:first-child, td:first-child { text-align: left; }
+  tbody td { border-bottom: 1px solid #151c13; }
+  tr.primary td { background: var(--panel2); }
+  tr.primary td.hl { color: #050605; background: var(--lime); font-weight: 700; }
+  tr.primary td:first-child { box-shadow: inset 3px 0 0 var(--lime); }
+  tr.sep td { color: var(--muted); font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; padding-top: 6px; border-bottom: 1px solid var(--line); }
+  tr.ext td:first-child { box-shadow: inset 3px 0 0 var(--orange); }
+  tr.me td:first-child { box-shadow: inset 3px 0 0 var(--cyan); }
+  .who { color: var(--hi); font-weight: 500; }
+  .who i { font-style: normal; color: var(--muted); font-size: 9px; font-weight: 400; margin-left: 6px; }
+  .badge { display: inline-block; border: 1px solid var(--line); padding: 0 5px; font-size: 9px; color: var(--hi); letter-spacing: 0.06em; }
+  .c-total { color: var(--orange); } .c-day { color: var(--blue); } .c-y { color: var(--lime); } .c-snr { color: var(--cyan); }
+  .c-vel { color: var(--yellow); } .c-lev { color: var(--violet); } .c-dev { color: var(--pink); } .c-m { color: var(--muted); } .c-red { color: var(--red); }
+
+  #readout { grid-area: readout; } #ship { grid-area: ship; } #tools { grid-area: tools; } #feed { grid-area: feed; }
+  .big { font-family: "Silkscreen", monospace; font-size: 24px; color: var(--lime); line-height: 1; white-space: nowrap; }
+  .big small { font-family: "Geist Mono", monospace; font-size: 10px; color: var(--muted); margin-left: 6px; }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; font-variant-numeric: tabular-nums; }
+  .kv span:nth-child(odd) { color: var(--muted); white-space: nowrap; }
+  .kv span:nth-child(even) { text-align: right; color: var(--hi); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sub { color: var(--muted); font-size: 9px; text-transform: uppercase; letter-spacing: 0.14em; margin: 6px 0 3px; border-top: 1px solid var(--line); padding-top: 4px; }
+  .ladder { position: relative; height: 40px; margin-top: auto; flex: none; }
+  .track { position: absolute; top: 16px; left: 0; right: 0; height: 5px; background: linear-gradient(90deg, #1f281c, #2f4a12 40%, #6aa300 75%, var(--lime)); }
+  .tick { position: absolute; top: 13px; width: 1px; height: 11px; background: var(--muted); }
+  .tick b { position: absolute; transform: translateX(-50%); font-weight: 400; font-size: 8px; color: var(--muted); white-space: nowrap; }
+  .mark { position: absolute; top: 0; font-size: 9px; white-space: nowrap; }
+  .mark.you { color: var(--lime); }
+  .mark.top { color: var(--orange); top: 28px; }
+  .pin { position: absolute; top: 11px; width: 2px; height: 15px; }
+  .pin.you { background: var(--lime); box-shadow: 0 0 6px var(--lime); } .pin.top { background: var(--orange); }
+  .shipbig { display: flex; gap: 14px; align-items: baseline; }
+  .shipbig b { font-family: "Silkscreen", monospace; font-weight: 400; font-size: 20px; }
+  .bars { height: 40px; display: flex; align-items: flex-end; gap: 2px; border-bottom: 1px solid var(--line); flex: none; }
+  .bar { flex: 1; background: var(--lime); opacity: 0.85; position: relative; min-height: 2px; }
+  .bar:hover { opacity: 1; }
+  .bar:hover::after { content: attr(data-t); position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); margin-bottom: 3px;
+    background: var(--hi); color: var(--bg); font-size: 9px; padding: 2px 5px; white-space: nowrap; z-index: 2; }
+  .meter { height: 5px; background: var(--line); margin-top: 2px; flex: none; }
+  .meter > div { height: 100%; background: var(--cyan); }
+  .tw { overflow: auto; min-height: 0; flex: 1; }
+  .tw table td, .tw table th { padding: 2px 5px; font-size: 10px; }
+  .tw thead th { position: sticky; top: 0; background: var(--panel); }
+  .fixed { table-layout: fixed; }
+  .fixed td, .fixed th { overflow: hidden; text-overflow: ellipsis; }
+  .tb { display: inline-block; height: 6px; background: var(--violet); vertical-align: middle; }
+  .ev td:first-child { color: var(--muted); }
+  .k-api { color: var(--lime); } .k-tool { color: var(--violet); } .k-prompt { color: var(--cyan); } .k-agent { color: var(--orange); } .k-compact { color: var(--pink); }
+  tr.fresh td { animation: flash 1.2s ease-out; }
+  @keyframes flash { from { background: #26400a; } to { background: transparent; } }
+  .empty { color: var(--muted); text-align: center; padding: 10px; }
+  @media (max-width: 1100px) {
+    html, body { overflow: auto; }
+    main { height: auto; grid-template-columns: 1fr 1fr; grid-template-rows: none;
+      grid-template-areas: "head head" "strip strip" "board board" "readout ship" "tools feed"; }
+    #strip { grid-template-columns: repeat(4, 1fr); }
+    #board { overflow-x: auto; }
+    #readout, #ship, #tools, #feed { height: 320px; }
+  }
+
+  /* Views: board · sessions · daily · milestones */
+  #board.wide { max-height: 46vh; }
+  .vbar { display: flex; gap: 8px; align-items: center; padding: 5px 0 4px; position: sticky; top: 0; background: var(--panel); z-index: 2; color: var(--muted); font-size: 10px; }
+  .vbar select, .vbar label { background: var(--panel2); color: var(--ink); border: 1px solid var(--line); font: 10px "Geist Mono", monospace; padding: 2px 5px; }
+  .vbar b { color: var(--hi); font-weight: 500; }
+  #alt thead th { position: sticky; top: 27px; background: var(--panel); z-index: 1; cursor: pointer; }
+  #alt thead th.on { color: var(--lime); }
+  #alt tbody tr { cursor: pointer; } #alt tbody tr:hover td { background: #121a0e; }
+  tr.dim td { opacity: 0.45; }
+  .dec { display: inline-block; min-width: 46px; padding: 0 4px; color: #050605; font-weight: 700; text-align: right; }
+  .d0 { background: #ff4d4d; } .d1 { background: #ff9a3c; } .d2 { background: #ffe600; } .d3 { background: #a6ff00; } .d4 { background: #00e5ff; } .d5 { background: #a855f7; color: #fff; }
+  .ms { display: grid; grid-template-columns: 92px 22px 1fr auto; gap: 2px 8px; align-items: baseline; padding: 3px 0; border-bottom: 1px solid #151c13; }
+  .ms .ic { text-align: center; } .ms .lb { color: var(--hi); } .ms .dt { color: var(--muted); }
+  .k-tokens { color: var(--orange); } .k-best { color: var(--lime); } .k-class { color: var(--violet); } .k-first { color: var(--cyan); } .k-streak { color: var(--yellow); } .k-count { color: var(--blue); }
+  tr.xp td { background: var(--panel2); color: var(--muted); text-align: left; white-space: normal; }
+  /* Session popup (BlitzStars tank popup) */
+  #modal { position: fixed; inset: 0; background: rgba(0,0,0,0.72); display: none; z-index: 50; align-items: center; justify-content: center; }
+  #modal.on { display: flex; }
+  .mbox { width: min(1180px, 96vw); height: min(860px, 94vh); background: var(--panel); border: 1px solid #3d5a10; border-radius: 6px; display: flex; flex-direction: column; overflow: hidden; }
+  .mnav { display: grid; grid-template-columns: 1fr 1fr 1fr; border-bottom: 1px solid var(--line); flex: none; }
+  .mnav button { background: none; border: 0; border-right: 1px solid var(--line); color: var(--muted); font: 11px "Geist Mono", monospace; padding: 7px; cursor: pointer; text-transform: uppercase; letter-spacing: 0.1em; }
+  .mnav button:last-child { border-right: 0; } .mnav button:hover:not(:disabled) { color: var(--lime); } .mnav button:disabled { opacity: 0.25; cursor: default; }
+  .mhead { display: grid; grid-template-columns: 1fr auto 1fr; gap: 10px; padding: 10px 14px; align-items: center; flex: none; }
+  .mhead .t { font-family: "Silkscreen", monospace; font-size: 20px; color: var(--hi); }
+  .mhead .r { text-align: center; } .mhead .r b { font-size: 15px; color: var(--lime); font-weight: 500; }
+  .mhead .x { text-align: right; color: var(--muted); }
+  .yband { display: flex; justify-content: space-between; padding: 5px 14px; background: #2f4a12; color: var(--hi); flex: none; font-size: 12px; }
+  .yband b { color: var(--lime); font-family: "Silkscreen", monospace; font-weight: 400; }
+  .mbody { display: grid; grid-template-columns: 1.05fr 1fr; gap: 12px; padding: 10px 14px; overflow: auto; min-height: 0; flex: 1; }
+  .mcol { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .st td, .st th { padding: 2px 6px; font-size: 11px; }
+  .st td.l { text-align: left; color: var(--muted); }
+  .st .bar2 { position: relative; height: 4px; background: var(--line); margin-top: 1px; }
+  .st .bar2 i { position: absolute; left: 0; top: 0; bottom: 0; }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+  .chip { border: 1px solid var(--line); padding: 1px 6px; font-size: 10px; } .chip b { color: var(--hi); font-weight: 500; }
+  svg.cv { width: 100%; height: 150px; background: #070a06; border: 1px solid var(--line); }
+
+  /* Explanations: tooltips, notes, legend, first-run, line graph */
+  .c-hi { color: var(--hi); }
+  .gl { border-bottom: 1px dotted var(--muted); cursor: help; }
+  .gl:focus-visible, .hit:focus-visible { outline: 1px solid var(--lime); outline-offset: 1px; }
+  #tip { position: fixed; z-index: 100; max-width: 280px; background: var(--hi); color: var(--bg); font: 11px/1.35 "Geist Mono", monospace; padding: 5px 8px; border-radius: 3px; pointer-events: none; display: none; white-space: pre-line; text-transform: none; letter-spacing: 0; font-weight: 400; box-shadow: 0 2px 10px rgba(0,0,0,0.6); }
+  #tip.on { display: block; }
+  .note { color: var(--muted); font-size: 9px; margin: -2px 0 5px; flex: none; text-transform: none; letter-spacing: 0; line-height: 1.35; }
+  #board > .note, #alt > .note { padding-top: 5px; margin: 0; }
+  .legend { flex: none; color: var(--muted); font-size: 9px; line-height: 1.5; margin-top: 16px; }
+  .legend b { color: var(--hi); font-weight: 500; }
+  #sh { flex: 1; min-height: 0; overflow: auto; }
+  svg.lg { display: block; width: 100%; height: 40px; border-bottom: 1px solid var(--line); flex: none; }
+  svg.lg .hit { fill: transparent; outline: none; cursor: crosshair; }
+  svg.lg .hit:hover, svg.lg .hit:focus { fill: rgba(166,255,0,0.16); }
+  .axis { display: flex; justify-content: space-between; color: var(--muted); font-size: 9px; margin-top: 2px; }
+  #setup { grid-area: 2 / 1 / 5 / -1; display: none; overflow: auto; min-height: 0; }
+  main.first #strip, main.first #board, main.first #readout, main.first #ship, main.first #tools, main.first #feed { display: none; }
+  main.first #setup { display: grid; grid-template-columns: minmax(280px, 340px) 1fr; gap: 14px; align-items: start; }
+  #setup h2 { margin: 0 0 6px; font-size: 13px; color: var(--hi); font-weight: 400; }
+  .steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  .steps li { display: grid; grid-template-columns: 22px 1fr; gap: 6px; align-items: start; }
+  .steps li i { font-style: normal; text-align: center; border: 1px solid var(--line); color: var(--muted); }
+  .steps li.ok i { background: var(--lime); border-color: var(--lime); color: #050605; }
+  .steps li.wait i { border-color: var(--orange); color: var(--orange); animation: pulse 2s infinite; }
+  .steps code { color: var(--cyan); }
+  .pv { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .pv .card { border: 1px dashed var(--line); border-radius: 4px; padding: 6px 8px; background: var(--bg); min-width: 0; }
+  .pv .card h3 { margin: 0 0 2px; font-size: 10px; color: var(--hi); font-weight: 500; text-transform: uppercase; letter-spacing: 0.1em; }
+  .pv .card p { margin: 0 0 6px; color: var(--muted); font-size: 10px; }
+  .sk { display: flex; gap: 4px; margin-bottom: 3px; } .sk i { display: block; height: 6px; background: var(--line); } .sk i.a { background: #2f4a12; } .sk i.o { background: #5a3a14; }
+  .pv svg { display: block; width: 100%; height: 34px; }
+  .pv .tag2 { color: var(--muted); font-size: 8px; text-transform: uppercase; letter-spacing: 0.12em; float: right; }
+  @media (max-width: 1100px) { main.first #setup { grid-template-columns: 1fr; } .pv { grid-template-columns: 1fr 1fr; } }
+
+  /* Transcript marker, actions, deltas, dialogs, model popup */
+  header { flex-wrap: wrap; }
+  .trn { color: var(--orange); border: 1px dashed #5a3a14; padding: 0 4px; font-size: 9px; font-style: normal; margin-left: 6px; white-space: nowrap; cursor: help; text-transform: none; letter-spacing: 0; font-weight: 400; }
+  .trn.mix { color: #d9a45c; }
+  .trn:focus-visible { outline: 1px solid var(--lime); outline-offset: 1px; }
+  .dl { display: inline-block; width: 14px; border-top: 2px dashed var(--orange); vertical-align: middle; margin-right: 4px; }
+  .seg.act button { color: var(--lime); }
+  .seg.act button:hover { background: #1b2a0e; }
+  .btn { background: var(--panel2); color: var(--lime); border: 1px solid #3d5a10; padding: 3px 9px; font: 10px "Geist Mono", monospace; cursor: pointer; text-transform: uppercase; letter-spacing: 0.06em; }
+  .btn:hover { background: #1b2a0e; } .btn:focus-visible { outline: 1px solid var(--lime); outline-offset: 1px; }
+  .bigrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  #readout { overflow: auto; } #readout > * { flex-shrink: 0; }
+  .dt { table-layout: fixed; } .dt th, .dt td { padding: 1px 3px; font-size: 9px; overflow: hidden; text-overflow: ellipsis; } .dt th:first-child, .dt td:first-child { width: 26%; }
+  .dt td:first-child { color: var(--muted); }
+  tr.clk { cursor: pointer; } tr.clk:hover td { background: #121a0e; }
+  .lk { cursor: pointer; border-bottom: 1px dotted var(--muted); } .lk:hover { color: var(--lime); }
+  #dlg { position: fixed; inset: 0; background: rgba(0,0,0,0.72); display: none; z-index: 60; align-items: center; justify-content: center; }
+  #dlg.on { display: flex; }
+  .dbox { width: min(560px, 94vw); max-height: 90vh; overflow: auto; background: var(--panel); border: 1px solid #3d5a10; border-radius: 6px; padding: 12px 14px; }
+  .dbox.wide { width: min(760px, 94vw); }
+  .dh { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+  .dh b { font-size: 14px; color: var(--hi); font-weight: 400; }
+  .dbox .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
+  .dbox label { color: var(--muted); }
+  input.in, textarea.in { background: var(--panel2); color: var(--hi); border: 1px solid var(--line); font: 12px "Geist Mono", monospace; padding: 3px 6px; }
+  input.in { width: 150px; } textarea.in { width: 100%; height: 44px; font-size: 10px; resize: none; }
+  .warn { border: 1px solid var(--orange); background: #1f1408; color: var(--hi); padding: 6px 9px; margin-bottom: 8px; line-height: 1.4; }
+  .lev { border: 1px solid var(--line); padding: 6px 9px; background: var(--bg); margin-top: 6px; line-height: 1.45; }
+  pre.js { background: #070a06; border: 1px solid var(--line); padding: 8px; max-height: 280px; overflow: auto; font-size: 10px; white-space: pre-wrap; word-break: break-all; margin: 6px 0; }
+  details summary { cursor: pointer; color: var(--lime); margin-top: 8px; }
+  .cardimg { background: #fff0; border: 1px solid var(--line); padding: 8px; text-align: center; margin: 6px 0; }
+  .cardimg img { max-width: 100%; height: auto; display: inline-block; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1 class="px">TOKENPULL <b>LIVE</b></h1>
+    <span class="tag">SigRank · Claude Code OTel</span>
+    <span class="live"><span id="dot" class="dot"></span><span id="status">connecting…</span></span>
+    <div class="seg push" id="view"><button data-v="board">Board</button><button data-v="sessions">Sessions</button><button data-v="daily">Daily</button><button data-v="miles">Milestones</button><button data-v="usage">Usage</button></div>
+    <div class="seg mode" id="mode"><button data-m="raw">Raw</button><button data-m="metrics">Metrics</button></div>
+    <div class="seg" id="win"><button data-d="1">24h</button><button data-d="7">7d</button><button data-d="30">30d</button><button data-d="90">90d</button><button data-d="0">All</button></div>
+    <div class="seg act"><button data-act="submit" data-tip="Preview the snapshot that would be sent to the SignalAF board. Nothing is sent.">Submit to board</button><button data-act="card" data-tip="A small image of your score you can share, plus the markdown to embed it.">Card</button></div>
+  </header>
+
+  <section id="strip"></section>
+  <section class="panel" id="board"><div class="note" id="bnote">Your totals next to the public SignalAF board, then a breakdown by source and model. YOU = your SigRank numbers (24h from reported OTel tokens; 7d+ computed by sigrank). Every number uses reported tokens — nothing estimated. Click a model row for its detail.</div><table id="btable"><thead id="bh"></thead><tbody id="bb"></tbody></table><div id="alt"></div></section>
+
+  <section class="panel" id="readout">
+    <div class="ph">Operator readout <span id="rw"></span></div>
+    <div class="note">Your headline score (Υ), what it is made of, and where you stand against the board.</div>
+    <div id="ro"></div>
+    <div class="ladder" id="ladder"></div>
+    <div class="legend" id="legend"></div>
+    <div id="dl"></div>
+  </section>
+
+  <section class="panel" id="ship">
+    <div class="ph">Shipped · pace · cache</div>
+    <div class="note">What you shipped, how fast it went, and how much context was reused from cache.</div>
+    <div id="sh"></div>
+  </section>
+
+  <section class="panel" id="tools">
+    <div class="ph">Tools <span id="tn"></span></div>
+    <div class="note">Which tools Claude used for you, how often, and how often they worked.</div>
+    <div class="tw"><table id="tt" class="fixed"></table></div>
+  </section>
+
+  <section class="panel" id="feed">
+    <div class="ph">Live <div class="tabs" id="ftab"><button data-t="feed">Feed</button><button data-t="sessions">Sessions</button></div></div>
+    <div class="note" id="fnote"></div>
+    <div class="tw"><table id="ft" class="fixed"></table></div>
+  </section>
+  <section class="panel" id="setup"></section>
+</main>
+<div id="tip" role="tooltip"></div>
+<div id="modal"><div class="mbox" id="mbox"></div></div>
+<div id="dlg" role="dialog" aria-modal="true" aria-labelledby="dtitle"><div class="dbox" id="dbox"></div></div>
+<script>
+const fmt = (n, d = 0) => (n == null || !isFinite(n)) ? '—' : Number(n).toLocaleString('en-US', { maximumFractionDigits: d, minimumFractionDigits: d });
+const big = (n) => n == null || !isFinite(n) ? '—' : n >= 1e9 ? fmt(n / 1e9, 1) + 'B' : n >= 1e6 ? fmt(n / 1e6, 1) + 'M' : n >= 1e3 ? fmt(n / 1e3, 1) + 'K' : fmt(n);
+const ups = (y) => y == null || !isFinite(y) ? '—' : y >= 1e6 ? fmt(y / 1e6, 2) + 'M' : y >= 1e4 ? fmt(y / 1e3, 1) + 'K' : fmt(y, y < 10 ? 2 : 1);
+const pct = (x, d = 1) => x == null || !isFinite(x) ? '—' : fmt(x * 100, d) + '%';
+const dur = (s) => s >= 3600 ? `${fmt(s / 3600, 1)}h` : s >= 60 ? `${fmt(s / 60, 0)}m` : `${fmt(s, 0)}s`;
+const kb = (b) => b >= 1048576 ? fmt(b / 1048576, 1) + 'MB' : b >= 1024 ? fmt(b / 1024, 0) + 'KB' : fmt(b) + 'B';
+const tname = (n = '') => n.startsWith('mcp__') ? n.split('__').pop() + ' ·mcp' : n;
+const clock = (ms) => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+const API = location.pathname.replace(/\/index\.html$/, '').replace(/\/+$/, '');
+const store = { get: (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
+let days = Number(store.get('tp-days', 7)), mode = store.get('tp-mode', 'metrics'), ftab = store.get('tp-ftab', 'feed');
+let S = null, B = null, L = null, R = null; const seen = new Set();
+let view = store.get('tp-view', 'board'), sproj = store.get('tp-sproj', ''), ssort = store.get('tp-ssort', 'last'), sall = store.get('tp-sall', '0') === '1';
+const openDays = new Set(); let openId = null, openMdl = null, D = null;
+const VIEWS = ['board', 'sessions', 'daily', 'miles'];
+const esc = (t) => String(t ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const winLabel = () => days ? (days === 1 ? '24h' : days + 'd') : 'all time';
+function parseHash() { const o = {}; for (const p of location.hash.slice(1).split('&')) { const i = p.indexOf('='); if (i > 0) try { o[p.slice(0, i)] = decodeURIComponent(p.slice(i + 1)); } catch {} } return o; }
+function syncHash() {
+  const p = ['view=' + view]; if (openId) p.push('session=' + encodeURIComponent(openId)); else if (openMdl) p.push('model=' + encodeURIComponent(openMdl));
+  const h = '#' + p.join('&'); if (h !== location.hash) try { history.replaceState(null, '', location.pathname + location.search + h); } catch {}
+}
+{ const h0 = parseHash(); if (VIEWS.includes(h0.view)) view = h0.view; }
+// Transcript marker: history imported from Claude Code transcripts, before live telemetry.
+const TRN_TIP = 'Recorded before live telemetry was switched on, so it comes from transcripts. Subagent output is under-counted in transcripts.';
+const TRN_MIX = 'Part of this was recorded before live telemetry (from transcripts). Subagent output is under-counted in transcripts.';
+const trn = (src, long) => src === 'transcript' ? `<span class="trn" tabindex="0" data-tip="${TRN_TIP}">≈ ${long ? 'from ' : ''}transcripts</span>`
+  : src === 'mixed' ? `<span class="trn mix" tabindex="0" data-tip="${TRN_MIX}">≈ ${long ? 'partly from' : 'part'} transcripts</span>` : '';
+
+// Plain-language glossary → hover/focus tooltips (custom element, not title=).
+const GL = {
+  'Υ Yield': 'Your headline score. It multiplies Leverage (how much cached context each token you type pulls in) by Velocity (how much the model writes back per token you type). Higher = more done per word you type.',
+  'SNR': 'Signal-to-noise: the share of input + output tokens that is output, the model\'s actual answer. Higher = less of the traffic is just input.',
+  'Velocity': 'Output per input: how many tokens the model writes for each token you put in. 2.0 means it writes twice what it was given.',
+  'Leverage': 'How much cached context each token you type pulls in. Higher = you build on context instead of repeating yourself.',
+  '10×Dev': 'Leverage on a log scale (log10 of cached context ÷ input). Each +1 means ten times more context reuse. Easier to compare than raw Leverage.',
+  'Scale V': 'Overall volume on a log scale: log10 of all your tokens added together. Each +1 means ten times more tokens in total.',
+  'C:I:O': 'Cache : Input : Output, with Input set to 1. 800:1:3 means each input token pulled in 800 cached tokens and got 3 output tokens back. Υ is the first number times the last.',
+  'Class': 'A named tier that places you on the leaderboard scale. Higher tiers mean more usage; it says nothing about how good the work is.',
+  'Construction': 'Cache writes ÷ cache reads: how much new context you store versus how much you reuse. Low = mostly reusing; high = constantly building new context.',
+  'Cache hit rate': 'Of everything fed to the model, the share that came from cache instead of being new. Higher = more reuse, usually cheaper and faster.',
+  'Typed input': 'Tokens in what you actually typed (estimated from prompt length). Counted on this computer only; never sent anywhere.',
+  'Logged input': 'Input tokens the API counted for each request. Usually small, because most of a request is cached context, which is counted separately.',
+  '∑/Day': 'Total tokens (input, output and cache) divided by the days in the chosen window: your average daily volume.',
+  '$/1M': 'Average cost per million tokens (cost ÷ total tokens × 1,000,000). Lower = cheaper per token, often thanks to cache reuse. Live data only.',
+  '∑ Total': 'All four kinds of tokens added together: input, output, cache write and cache read.',
+  'Input': 'Input tokens the API counted for each request (the "logged" input). Cached context is counted separately.',
+  'Output': 'Tokens the model wrote back: answers, code and tool calls.',
+  'Cache W': 'Cache write: tokens stored so later requests can reuse them.',
+  'Cache R': 'Cache read: tokens reused from earlier requests instead of being sent fresh.',
+  'Req': 'Requests: how many times Claude Code called the model.',
+  'Cost': 'What the API calls cost, from live telemetry. Not available for history imported from transcripts.',
+  'Board rank': 'Your position on the public SignalAF leaderboard for this window, out of everyone listed.',
+  '◉ Source': 'Whose numbers the row shows: you, the board leader, or a slice of your own usage.',
+  'Prompts': 'How many prompts you typed.',
+  'Rank': 'Position among your own eligible sessions, ordered by Υ.',
+  'Session': 'One run of Claude Code, from start to last activity.',
+  'Day': 'A day runs 05:00 to 05:00, so late-night work counts toward the day you started.',
+  '+/−': 'Lines of code added (green) and removed (red).',
+  'Tools': 'Tool calls Claude made: file reads, edits, shell commands and so on.',
+  'Dur': 'How long the session lasted, first to last event.',
+  'Models': 'Which Claude models answered.',
+  'Sess': 'Number of sessions that day.',
+  'Commits · PRs': 'Git commits and pull requests made through Claude Code.',
+  'Edits accepted': 'Share of Claude\'s proposed file edits that you accepted instead of rejecting.',
+  'Lines / 1K output': 'Lines of code changed per 1,000 output tokens. Higher = more of what the model writes ends up in code.',
+  'Active time': 'Time Claude spent working, with the part spent waiting on you in brackets.',
+  'Cost / active hr': 'API cost divided by active hours.',
+  'TTFT · request (med)': 'Median wait before the first word arrives, then the median full request time.',
+  'Subagents · compactions': 'Helper agents Claude started, and times it summarised a long chat to free up room.',
+  'Vel · Lev': 'Velocity and Leverage, the two numbers that multiply into Υ.',
+  'SNR · 10×Dev': 'Signal-to-noise and log Leverage; see each on its own for the definition.',
+  'Typed · logged I': 'Typed input = what you wrote. Logged input = what the API counted.',
+  'Υ per day': 'One point per day. Hover or tab to a point to see that day\'s numbers.',
+  'Output per day': 'One point per day. Hover or tab to a point to see that day\'s numbers.',
+  'vs #1': 'Your Υ divided by the board leader\'s Υ (▲ ahead, ▼ behind).',
+  'Your board row': 'Where your public codename sits on the board, with its Υ and class.',
+  'AA': 'Υ 1.75. The starting reference mark on the ladder.',
+  'Center': 'Υ 2. The middle reference mark: a balanced, ordinary level.',
+  'Power': 'Υ ≈ 252. A strong reference mark: heavy reuse of cached context.',
+  'vs career': 'Each number is the last 30, 60 or 90 days minus your all-time value. Green = better than your usual, red = worse. Output, requests and typed input are per day, so the windows compare fairly.',
+  'Output / day': 'Average output tokens per day in that window.',
+  'Requests / day': 'Average model calls per day in that window.',
+  'Typed input / day': 'Average typed tokens per day in that window. Local only.',
+  'Top': 'Υ ≈ 940. The highest reference mark; the best operators sit near here.',
+};
+const alias = (k, ...as) => as.forEach((a) => GL[a] = GL[k]);
+alias('Velocity', 'Velocity (O/I)'); alias('Leverage', 'Leverage (CR/I)'); alias('Υ Yield', 'Υ Yield');
+alias('Υ Yield', 'Υ', 'Υ Yield · typed input', 'Υ Yield · SigRank'); alias('SNR', '▲ SNR'); alias('Velocity', '⚡ Velocity', 'Vel'); alias('Leverage', '⚙ Leverage', 'Lev');
+alias('10×Dev', '✧ 10×Dev'); alias('Scale V', 'Ⅴ Scale V'); alias('C:I:O', '⋮ C:I:O', '⋮ Op ratio'); alias('Cache hit rate', 'Hit rate');
+alias('∑ Total', '∑ Total tokens', '∑'); alias('Typed input', 'Typed'); alias('Output', 'Out'); alias('Req', 'Requests'); alias('Cost', 'Cost · live');
+alias('Cache R', 'Cache read', 'CR'); alias('Cache W', 'Cache write', 'CW'); alias('Prompts', 'Prm'); alias('∑/Day', '∑ / Day');
+const escA = (t) => t.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+const g = (label, key = label) => GL[key] ? `<span class="gl" tabindex="0" data-tip="${escA(GL[key])}">${label}</span>` : label;
+let tipEl = null, mx = 0, my = 0;
+const tipBox = () => document.getElementById('tip');
+function showTip(el) {
+  const t = tipBox(); tipEl = el; t.textContent = el.dataset.tip; t.classList.add('on');
+  const r = el.getBoundingClientRect(), w = t.offsetWidth, h = t.offsetHeight;
+  t.style.left = Math.max(6, Math.min(innerWidth - w - 6, r.left + r.width / 2 - w / 2)) + 'px';
+  t.style.top = (r.top - h - 6 < 6 ? r.bottom + 6 : r.top - h - 6) + 'px';
+}
+function hideTip() { tipEl = null; tipBox().classList.remove('on'); }
+document.addEventListener('mouseover', (e) => { mx = e.clientX; my = e.clientY; const el = e.target.closest?.('[data-tip]'); if (el) showTip(el); else if (tipEl) hideTip(); });
+document.addEventListener('mousemove', (e) => { mx = e.clientX; my = e.clientY; });
+document.addEventListener('focusin', (e) => { const el = e.target.closest?.('[data-tip]'); if (el) showTip(el); });
+document.addEventListener('focusout', () => hideTip());
+
+// Four Degrees reference tiers (C:I:O → Υ = C·O).
+const DEGREES = [['AA', 1.75], ['Center', 2.0], ['Power', 251.7], ['Top', 940.1]];
+
+// Normalize a local or leaderboard row into one shape.
+function local(b, t) {
+  return b && { cls: b.class, input: b.input, output: t.output, cw: t.cacheWrite, cr: t.cacheRead, total: b.total, perDay: b.perDay,
+    scaleV: b.scaleV, y: b.yield, snr: b.snr, vel: b.velocity, lev: b.leverage, dev: b.dev10x, cio: b.cio, req: t.requests, cost: t.cost,
+    per1M: b.costPer1M, hit: b.hitRate, con: b.construction };
+}
+function fromBoard(e, wd) {
+  if (!e) return null;
+  const p = e.pillars, m = e.metrics, total = p.input + p.output + p.cache_write + p.cache_read;
+  return { cls: e.cls, input: p.input, output: p.output, cw: p.cache_write, cr: p.cache_read, total, perDay: total / wd, scaleV: m.scale_v,
+    y: m.yield, snr: m.snr, vel: m.velocity, lev: m.leverage, dev: m.dev10x, cio: `${fmt(m.leverage, 0)}:1:${fmt(m.velocity, 2)}`,
+    req: null, cost: null, per1M: null, hit: p.cache_read / (p.cache_read + p.cache_write + p.input), con: m.construction };
+}
+
+const COLS = {
+  raw: [['Class', 'c-m'], ['Input', 'c-m'], ['Output', 'c-m'], ['Cache W', 'c-m'], ['Cache R', 'c-m'], ['∑ Total', 'c-total'], ['∑/Day', 'c-day'], ['Req', 'c-m'], ['Cost', 'c-m'], ['$/1M', 'c-m'], ['Hit rate', 'c-snr']],
+  metrics: [['Class', 'c-m'], ['Υ Yield', 'c-y'], ['▲ SNR', 'c-snr'], ['⚡ Velocity', 'c-vel'], ['⚙ Leverage', 'c-lev'], ['✧ 10×Dev', 'c-dev'], ['⋮ Op ratio', 'c-lev'], ['Ⅴ Scale V', 'c-m'], ['∑ Total', 'c-total'], ['∑/Day', 'c-day'], ['Construction', 'c-m']],
+};
+function cells(r) {
+  if (!r) return `<td colspan="11" class="c-m" style="text-align:left">no input yet</td>`;
+  const b = `<td><span class="badge">${r.cls}</span></td>`;
+  if (mode === 'raw') return b + `<td>${big(r.input)}</td><td>${big(r.output)}</td><td>${big(r.cw)}</td><td>${big(r.cr)}</td>
+    <td class="c-total hl">${big(r.total)}</td><td class="c-day">${big(r.perDay)}</td><td>${fmt(r.req)}</td><td>${!r.cost ? '—' : '$' + fmt(r.cost, 2)}</td>
+    <td>${!r.cost ? '—' : '$' + fmt(r.per1M, 2)}</td><td class="c-snr">${pct(r.hit)}</td>`;
+  return b + `<td class="c-y hl">${ups(r.y)}</td><td class="c-snr">${pct(r.snr)}</td><td class="c-vel">${fmt(r.vel, 2)}</td>
+    <td class="c-lev">${fmt(r.lev, r.lev < 100 ? 1 : 0)}×</td><td class="c-dev">${fmt(r.dev, 2)}</td><td class="c-lev">${r.cio}</td>
+    <td>${fmt(r.scaleV, 2)}</td><td class="c-total">${big(r.total)}</td><td class="c-day">${big(r.perDay)}</td><td>${fmt(r.con, 4)}</td>`;
+}
+const tr = (label, sub, r, cls = '', attr = '') => `<tr class="${cls}"${attr}><td class="who">${label}<i>${sub}</i></td>${cells(r)}</tr>`;
+
+function renderBoard() {
+  const s = S, t = s.total, wd = s.windowDays;
+  document.getElementById('bh').innerHTML = `<tr><th class="c-m">${g('◉ Source')}</th>${COLS[mode].map(([h, c]) => `<th class="${c}">${g(h)}</th>`).join('')}</tr>`;
+  let h = tr('YOU · SigRank', `${days === 1 ? 'reported OTel tokens · 24h' : `computed by sigrank (tokenpull + token-cascade) · ${R?.window || '—'}`}`, R?.row ? local(R.row, R.t) : null, 'primary');
+  if (B?.top) {
+    h += `<tr class="sep"><td colspan="12">SignalAF board · ${B.window} · field ${B.field}</td></tr>`;
+    h += tr(`#${B.top.rank} ${B.top.name}`, 'board leader', fromBoard(B.top, wd), 'ext');
+    if (B.you && B.you !== B.top) h += tr(`#${B.you.rank} ${B.you.name}`, 'you on the board', fromBoard(B.you, wd), 'me');
+  }
+  const SRC = { you: 'main thread', subagents: 'subagents', compaction: 'compaction', harness: 'harness · aux' };
+  h += `<tr class="sep"><td colspan="12">Breakdown · by source and model</td></tr>`;
+  const srcs = Object.entries(s.sources).sort((a, b) => b[1].output - a[1].output);
+  if (srcs.length > 1) for (const [k, v] of srcs) h += tr(SRC[k] || k, 'reported tokens', local(v.board.logged, v));
+  for (const [m, v] of Object.entries(s.models).sort((a, b) => b[1].output - a[1].output))
+    h += tr(m.replace('claude-', ''), `model · ${g('logged input', 'Logged input')}`, local(v.board.logged, v), 'clk', ` data-model="${esc(m)}"`);
+  document.getElementById('bb').innerHTML = h;
+}
+
+function renderStrip() {
+  const t = S.total, b = R?.row || null, T = (k, v, sub = '', c = '') => `<div class="panel ${c}"><div class="tk">${g(k)}</div><div class="tv">${v}${sub ? ` <small>${sub}</small>` : ''}</div></div>`;
+  const grand = t.input + t.output + t.cacheRead + t.cacheWrite;
+  document.getElementById('strip').innerHTML = mode === 'raw'
+    ? T('∑ Total tokens', big(grand), `${big(grand / (S.windowDays || 1))}/day`, 'grand') + T('Prompts', fmt(t.prompts))
+      + T('Logged input', big(t.input)) + T('Output', big(t.output)) + T('Cache read', big(t.cacheRead)) + T('Cache write', big(t.cacheWrite))
+      + T('Requests', fmt(t.requests), `${fmt(S.sessionCount)} sess`) + T('Cost · live', '$' + fmt(t.cost, 2))
+    : T('Υ Yield · SigRank', ups(b?.yield), b?.class || '', 'grand y') + T('▲ SNR', pct(b?.snr)) + T('⚡ Velocity', fmt(b?.velocity, 2))
+      + T('⚙ Leverage', b ? fmt(b.leverage, 0) + '×' : '—') + T('✧ 10×Dev', fmt(b?.dev10x, 2)) + T('Ⅴ Scale V', fmt(b?.scaleV, 2))
+      + T('⋮ C:I:O', b?.cio || '—') + T('Board rank', B?.you ? `#${B.you.rank}` : '—', B ? `of ${B.field}` : '');
+}
+
+function renderReadout() {
+  const t = S.total, b = R?.row || null;
+  document.getElementById('rw').textContent = days ? (days === 1 ? '24h' : days + 'd') : 'all';
+  const gap = b && B?.top ? b.yield / B.top.metrics.yield : null;
+  document.getElementById('ro').innerHTML = b ? `
+    <div class="bigrow"><div class="big">${ups(b.yield)}<small>${g('Υ')} · ${g(b.class, 'Class')}</small></div><button class="btn" data-act="calc" data-tip="Pick a Υ score and see what you would have to change to reach it.">What would it take?</button></div>
+    <div class="sub">Composition</div>
+    <div class="kv">
+      <span>${g('C:I:O')}</span><span>${b.cio}</span>
+      <span>${g('Vel · Lev')}</span><span>${fmt(b.velocity, 2)} · ${fmt(b.leverage, 0)}×</span>
+      <span>${g('SNR · 10×Dev')}</span><span>${pct(b.snr)} · ${fmt(b.dev10x, 2)}</span>
+      <span>${g('Construction')}</span><span>${fmt(b.construction, 4)}</span>
+      <span>${g('Input', 'Logged input')}</span><span>${big(b?.input)}</span>
+    </div>
+    <div class="sub">Against the board</div>
+    <div class="kv">
+      <span>${g('vs #1')} ${B?.top ? B.top.name : ''}</span><span class="${gap >= 1 ? 'c-y' : 'c-total'}">${gap == null ? '—' : (gap >= 1 ? '▲ ' : '▼ ') + fmt(gap >= 1 ? gap : 1 / gap, 2) + '×'}</span>
+      <span>${g('Your board row')}</span><span>${B?.you ? `#${B.you.rank} · Υ ${ups(B.you.metrics.yield)} · ${B.you.cls}` : '—'}</span>
+    </div>` : '<div class="empty">Waiting for your first prompt…</div>';
+  document.getElementById('dl').innerHTML = b ? deltaTable() : '';
+  if (!b) { document.getElementById('ladder').innerHTML = ''; document.getElementById('legend').innerHTML = ''; return; }
+  document.getElementById('legend').innerHTML = `<b>Four Degrees</b> · fixed marks on the Υ scale (log): ${DEGREES.map(([n, y]) => `${g('<b>' + n + '</b>', n)} ${y >= 100 ? fmt(y, 0) : fmt(y, 2)}`).join(' · ')}. Lime pin = you${B?.top ? ', orange = board #1' : ''}.`;
+  const pts = [b.yield, B?.top?.metrics.yield || 1, ...DEGREES.map((d) => d[1])];
+  const lo = Math.log10(0.5), hi = Math.log10(Math.max(...pts) * 3);
+  const pos = (y) => Math.min(98, Math.max(1, (Math.log10(Math.max(y, 0.5)) - lo) / (hi - lo) * 100));
+  const lab = (p) => `translateX(${p > 75 ? '-100%' : p < 15 ? '0' : '-50%'})`;
+  const yp = pos(b.yield), tp = B?.top ? pos(B.top.metrics.yield) : null;
+  document.getElementById('ladder').innerHTML = `<div class="track"></div>`
+    + DEGREES.map(([n, y], i) => `<div class="tick" style="left:${pos(y)}%"><b style="top:${i % 2 ? 24 : 13}px">${n}</b></div>`).join('')
+    + `<div class="pin you" style="left:${yp}%"></div><div class="mark you" style="left:${yp}%;transform:${lab(yp)}">YOU ${ups(b.yield)}</div>`
+    + (tp != null ? `<div class="pin top" style="left:${tp}%"></div><div class="mark top" style="left:${tp}%;transform:${lab(tp)}">#1 ${ups(B.top.metrics.yield)}</div>` : '');
+}
+
+const DF = { yield: ups, velocity: (v) => fmt(v, 2), leverage: (v) => fmt(v, 0) + '×', snr: (v) => fmt(v * 100, 1) + 'pt', output: big, requests: (v) => fmt(v, 0), typed: big };
+function deltaTable() {
+  if (!D?.rows) return `<div class="sub">${g('vs career')} · 30 / 60 / 90 days</div><div class="note">Loading…</div>`;
+  const dc = (k, v) => v == null ? '<td class="c-m">—</td>' : `<td class="${v >= 0 ? 'c-y' : 'c-red'}">${v >= 0 ? '+' : '−'}${(DF[k] || big)(Math.abs(v))}</td>`;
+  const car = (k, v) => k === 'snr' ? pct(v) : (DF[k] || big)(v);
+  return `<div class="sub">${g('vs career')} · 30 / 60 / 90 days</div>
+    <table class="dt"><thead><tr><th></th><th>30d</th><th>60d</th><th>90d</th><th>Career</th></tr></thead><tbody>${D.rows.map((r) => `<tr><td>${g(r.label.replace(/ \(.*\)/, '').replace(' / day', '/day').replace('Typed input', 'Typed'), r.label)}</td>${dc(r.k, r.d30)}${dc(r.k, r.d60)}${dc(r.k, r.d90)}<td class="c-hi">${car(r.k, r.career)}</td></tr>`).join('')}</tbody></table>
+    <div class="note" style="margin:3px 0 0">Recent window minus your all-time value. Green = ahead of your usual.${(S.dailies?.length || 0) < 90 ? ' Your history is shorter than 90 days, so some windows match.' : ''}</div>`;
+}
+function renderShip() {
+  const sh = S.ship, p = S.pace, t = S.total, b = t.board.typed ?? t.board.logged;
+  const dv = Object.entries(S.days), val = (v) => mode === 'raw' ? v.output : (v.board.typed?.yield || 0);
+  const max = Math.max(1, ...dv.map(([, v]) => val(v)));
+  const accept = sh.editAccept + sh.editReject ? sh.editAccept / (sh.editAccept + sh.editReject) : null;
+  document.getElementById('sh').innerHTML = `
+    <div class="shipbig"><b class="c-y">+${fmt(sh.added)}</b><b class="c-red">−${fmt(sh.removed)}</b><span class="c-m">lines</span></div>
+    <div class="kv" style="margin-top:3px">
+      <span>${g('Commits · PRs')}</span><span>${fmt(sh.commits)} · ${fmt(sh.prs)}</span>
+      <span>${g('Edits accepted')}</span><span>${accept == null ? '—' : pct(accept, 0)} <span class="c-m">(${fmt(sh.editAccept)}/${fmt(sh.editAccept + sh.editReject)})</span></span>
+      <span>${g('Lines / 1K output')}</span><span>${t.output ? fmt((sh.added + sh.removed) / t.output * 1000, 1) : '—'}</span>
+    </div>
+    <div class="sub">Pace</div>
+    <div class="kv">
+      <span>${g('Active time')}</span><span>${dur(p.activeSec)} <span class="c-m">(you ${dur(p.userSec)})</span></span>
+      <span>${g('Cost / active hr')}</span><span>$${fmt(p.costPerHour, 2)}</span>
+      <span>Output · tokens / min</span><span>${big(p.outputPerMin)} · ${big(p.tokensPerMin)}</span>
+      <span>${g('TTFT · request (med)')}</span><span>${fmt(p.ttftMedMs / 1000, 1)}s · ${fmt(p.durMedMs / 1000, 1)}s</span>
+      <span>${g('Subagents · compactions')}</span><span>${fmt(p.subagents)} · ${fmt(p.compactions)}</span>
+    </div>
+    <div class="sub">${g('Cache hit rate')} · ${pct(b?.hitRate)}</div>
+    <div class="meter"><div style="width:${(b?.hitRate || 0) * 100}%"></div></div>
+    <div class="sub">${g(mode === 'raw' ? 'Output per day' : 'Υ per day', mode === 'raw' ? 'Output per day' : 'Υ per day')} · ${dv.length}d</div>
+    ${lineGraph(dv, val, max)}`;
+}
+const pl = (p, dash, col) => p.length > 1 ? `<polyline points="${p.map((q) => q[0].toFixed(1) + ',' + q[1].toFixed(1)).join(' ')}" fill="none" stroke="${col}" stroke-width="1.5" vector-effect="non-scaling-stroke"${dash ? ' stroke-dasharray="4 3"' : ''}/>` : '';
+function runs(xy, srcs, col) { // dashed where the later point of a segment is a transcript day
+  let out = '', cur = [xy[0]], dash = false;
+  for (let i = 1; i < xy.length; i++) { const d = srcs[i] === 'transcript'; if (d !== dash) { out += pl(cur, dash, col); cur = [xy[i - 1]]; dash = d; } cur.push(xy[i]); }
+  return out + pl(cur, dash, col);
+}
+function lineGraph(dv, val, max) {
+  const n = dv.length, W = 300, H = 40;
+  if (!n) return '<div class="empty">No days yet</div>';
+  const X = (i) => n > 1 ? i / (n - 1) * W : W / 2, Y = (v) => H - 3 - v / max * (H - 8), bw = W / n;
+  const xy = n > 1 ? dv.map(([, v], i) => [X(i), Y(val(v))]) : [[0, Y(val(dv[0][1]))], [W, Y(val(dv[0][1]))]];
+  const pts = xy.map((q) => `${q[0].toFixed(1)},${q[1].toFixed(1)}`);
+  const hits = dv.map(([d, v], i) => `<rect class="hit" tabindex="0" x="${(X(i) - bw / 2).toFixed(1)}" y="0" width="${bw.toFixed(1)}" height="${H}" data-tip="${escA(`${d.slice(5)}\nΥ ${ups(v.board.typed?.yield)} · ${big(v.output)} out\n+${fmt(v.added)}/−${fmt(v.removed)} lines${v.source === 'transcript' ? '\n≈ from transcripts' : v.source === 'mixed' ? '\n≈ part from transcripts' : ''}`)}"></rect>`).join('');
+  const dot = n === 1 ? `<circle cx="${W / 2}" cy="${Y(val(dv[0][1])).toFixed(1)}" r="2.5" fill="#a6ff00"/>` : '';
+  const anyT = dv.some(([, v]) => v.source === 'transcript');
+  return `<svg class="lg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Line graph, one point per day"><polygon points="0,${H} ${pts.join(' ')} ${W},${H}" fill="#a6ff00" opacity="0.12"/>
+    ${runs(xy, n > 1 ? dv.map(([, v]) => v.source) : [], '#a6ff00')}${dot}${hits}</svg>
+    <div class="axis"><span>${dv[0][0].slice(5)}</span><span>peak ${mode === 'raw' ? big(max) : 'Υ ' + ups(max)}</span><span>${dv[n - 1][0].slice(5)}</span></div>
+    ${anyT ? `<div class="axis" style="justify-content:flex-start"><span class="trn" style="margin:0" tabindex="0" data-tip="${TRN_TIP}"><i class="dl"></i>dashed = ≈ from transcripts</span></div>` : ''}`;
+}
+
+function renderTools() {
+  const ts = S.tools, max = Math.max(1, ...ts.map((x) => x.calls));
+  document.getElementById('tn').textContent = `${fmt(ts.reduce((s, x) => s + x.calls, 0))} calls`;
+  document.getElementById('tt').innerHTML = ts.length ? `<colgroup><col style="width:40%"><col style="width:17%"><col style="width:15%"><col style="width:13%"><col style="width:15%"></colgroup><thead><tr><th class="c-m">Tool</th><th class="c-m">Calls</th><th class="c-m"></th><th class="c-m"><span class="gl" tabindex="0" data-tip="Share of calls that succeeded.">OK</span></th><th class="c-m"><span class="gl" tabindex="0" data-tip="Average time one call took.">Avg</span></th></tr></thead><tbody>`
+    + ts.map((x) => `<tr><td class="who" title="${x.name}${x.reject ? ' · ' + x.reject + ' rejected' : ''}">${tname(x.name)}${x.reject ? ' <span class="c-red">✕' + x.reject + '</span>' : ''}</td><td>${big(x.calls)}</td><td><span class="tb" style="width:${x.calls / max * 100}%"></span></td>
+      <td class="${x.ok < x.calls ? 'c-red' : 'c-snr'}">${fmt(x.ok / x.calls * 100, 0)}%</td><td>${!x.timed ? '—' : x.avgMs >= 1000 ? fmt(x.avgMs / 1000, 1) + 's' : fmt(x.avgMs) + 'ms'}</td></tr>`).join('') + '</tbody>'
+    : '<tr><td class="empty">No tool calls yet</td></tr>';
+}
+
+function renderFeed() {
+  const el = document.getElementById('ft');
+  document.getElementById('fnote').textContent = ftab === 'sessions' ? 'Each Claude Code session in this window, newest first.' : 'Every model call, tool call and prompt as it happens, newest first. New rows flash.';
+  if (ftab === 'sessions') {
+    el.innerHTML = `<thead><tr><th class="c-m">${g('Session')}</th><th class="c-m">Last</th><th class="c-m">${g('Prm')}</th><th class="c-m">${g('Typed')}</th><th class="c-m">${g('Out')}</th><th class="c-m">${g('+/−')}</th><th class="c-y">${g('Υ')}</th><th class="c-m">${g('Class')}</th></tr></thead><tbody>`
+      + S.sessions.map((x) => { const r = x.board.typed; return `<tr><td class="who">${x.id.slice(0, 8)}<i>${x.models.map((m) => m.replace('claude-', '')).join(',')}</i></td>
+        <td>${new Date(x.last).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</td><td>${fmt(x.prompts)}</td><td>${big(x.typed)}</td><td>${big(x.output)}</td>
+        <td><span class="c-y">+${fmt(x.added)}</span>/<span class="c-red">${fmt(x.removed)}</span></td><td class="c-y">${ups(r?.yield)}</td><td><span class="badge">${r?.class ?? '—'}</span></td></tr>`; }).join('') + '</tbody>';
+    return;
+  }
+  const ICON = { api: '◆ API', tool: '⚙ TOOL', prompt: '▶ YOU', agent: '✦ AGENT', compact: '⟲ COMPACT' };
+  const first = seen.size === 0;
+  el.innerHTML = '<colgroup><col style="width:21%"><col style="width:15%"><col style="width:22%"><col></colgroup><tbody>' + (S.feed.length ? S.feed.map((e) => {
+    const id = `${e.ms}${e.kind}${e.label}`, fresh = !first && !seen.has(id); seen.add(id);
+    let d = '';
+    if (e.kind === 'api') d = mode === 'raw' ? `<span class="c-m">I</span> ${big(e.i)} <span class="c-m">O</span> ${big(e.o)} <span class="c-m">CR</span> ${big(e.cr)} <span class="c-m">CW</span> ${big(e.cw)}`
+      : `<span class="c-m">O</span> ${big(e.o)} · ${fmt(e.dur / 1000, 1)}s · $${fmt(e.cost, 3)}`;
+    else if (e.kind === 'tool') d = `${e.dur >= 1000 ? fmt(e.dur / 1000, 1) + 's' : fmt(e.dur) + 'ms'} · ${kb(e.bytes)}${e.fail ? ' <span class="c-red">FAIL</span>' : ''}`;
+    else if (e.kind === 'prompt') d = `${fmt(e.chars)} chars ≈ ${fmt(e.typed)} tok`;
+    return `<tr class="ev ${fresh ? 'fresh' : ''}"><td>${clock(e.ms)}</td><td class="k-${e.kind}">${ICON[e.kind] || e.kind}</td><td class="who" title="${e.label || ''}">${tname(e.label || '')}${e.src && e.src !== 'you' ? `<i>${e.src}</i>` : ''}</td><td style="text-align:right">${d}</td></tr>`;
+  }).join('') : '<tr><td class="empty">Waiting for activity…</td></tr>') + '</tbody>';
+}
+
+
+// ---- Views: Sessions (tanks table) · Daily (05:00 sessions log) · Milestones ----
+const dec = (p) => p == null ? null : Math.min(5, p < 0.2 ? 0 : p < 0.4 ? 1 : p < 0.6 ? 2 : p < 0.8 ? 3 : p < 0.9 ? 4 : 5);
+const dayFmt = (ms) => new Date(ms).toLocaleDateString([], { month: 'short', day: 'numeric' });
+const mins = (m) => m >= 1440 ? fmt(m / 1440, 1) + 'd' : m >= 60 ? fmt(m / 60, 1) + 'h' : fmt(m, 0) + 'm';
+const SCOLS = [['last', 'Session'], ['rank', 'Rank'], ['cls', 'Class'], ['yield', 'Υ'], ['velocity', 'Vel'], ['leverage', 'Lev'], ['snr', 'SNR'],
+  ['prompts', 'Prm'], ['requests', 'Req'], ['typed', 'Typed'], ['output', 'Out'], ['total', '∑'], ['lines', '+/−'], ['tools', 'Tools'], ['minutes', 'Dur'], ['models', 'Models']];
+
+function renderSessions(el) {
+  if (!L) { el.innerHTML = '<div class="empty">Loading sessions…</div>'; return; }
+  let list = L.sessions.filter((x) => (!sproj || x.project === sproj) && (sall || x.eligible));
+  const yv = L.sessions.filter((x) => x.eligible && x.yield != null).map((x) => x.yield).sort((a, b) => a - b);
+  const pct = (v) => { if (v == null || !yv.length) return null; let i = 0; while (i < yv.length && yv[i] <= v) i++; return i / yv.length; };
+  const key = (x) => ssort === 'models' ? x.models.length : ssort === 'cls' ? (x.yield ?? -1) : ssort === 'rank' ? -(x.rank ?? 1e9) : (x[ssort] ?? -Infinity);
+  list = [...list].sort((a, b) => key(b) - key(a));
+  el.innerHTML = `<div class="note">Every Claude Code session as a row, ranked by Υ against your other sessions. Click a row for the full breakdown; click a column to sort. Greyed rows are too short to rank.</div><div class="vbar"><span>Sessions as tanks · ranked by Υ among <b>${L.field}</b> eligible (≥${L.eligibleRule.prompts} prompts, ≥${L.eligibleRule.requests} req)</span>
+    <select id="sproj"><option value="">All projects (${L.sessions.length})</option>${L.projects.map((p) => `<option ${p.project === sproj ? 'selected' : ''} value="${p.project}">${p.project} (${p.sessions})</option>`).join('')}</select>
+    <label><input type="checkbox" id="sall" ${sall ? 'checked' : ''}> show ineligible</label><span class="push">${list.length} shown · click a row</span></div>
+    <table><thead><tr>${SCOLS.map(([k, h]) => `<th data-k="${k}" class="${k === ssort ? 'on' : ''}">${g(h)}</th>`).join('')}</tr></thead><tbody>`
+    + list.map((x) => { const d = dec(pct(x.yield)); return `<tr data-id="${x.id}" class="${x.eligible ? '' : 'dim'}">
+      <td class="who">${x.project}<i>${dayFmt(x.first)} · ${x.id.slice(0, 6)}</i>${trn(x.source)}</td>
+      <td>${x.rank ? `#${x.rank}<span class="c-m">/${L.field}</span>` : '<span class="c-m">✗</span>'}</td><td><span class="badge">${x.cls ?? '—'}</span></td>
+      <td>${x.yield == null ? '—' : d == null || !x.eligible ? ups(x.yield) : `<span class="dec d${d}">${ups(x.yield)}</span>`}</td>
+      <td class="c-vel">${fmt(x.velocity, 2)}</td><td class="c-lev">${x.leverage == null ? '—' : fmt(x.leverage, 0) + '×'}</td><td class="c-snr">${x.snr == null ? '—' : (x.snr * 100).toFixed(1) + '%'}</td>
+      <td>${fmt(x.prompts)}</td><td>${fmt(x.requests)}</td><td>${big(x.typed)}</td><td>${big(x.output)}</td><td class="c-total">${big(x.total)}</td>
+      <td><span class="c-y">+${big(x.added)}</span>/<span class="c-red">${big(x.removed)}</span></td><td>${fmt(x.tools)}</td><td>${mins(x.minutes)}</td>
+      <td class="c-m">${x.models.map((m) => m.m.replace(/-\d.*$/, '')).join(' ')}</td></tr>`; }).join('') + '</tbody></table>';
+  el.querySelector('#sproj').onchange = (e) => { sproj = e.target.value; store.set('tp-sproj', sproj); render(); };
+  el.querySelector('#sall').onchange = (e) => { sall = e.target.checked; store.set('tp-sall', sall ? '1' : '0'); render(); };
+  el.querySelectorAll('th').forEach((th) => th.onclick = () => { ssort = th.dataset.k; store.set('tp-ssort', ssort); render(); });
+  el.querySelectorAll('tbody tr').forEach((tr) => tr.onclick = () => openSession(tr.dataset.id));
+}
+
+function renderDaily(el) {
+  const ds = S.dailies || [];
+  const mx = Math.max(1, ...ds.map((d) => d.total));
+  el.innerHTML = `<div class="note">One row per day (a day runs 05:00 to 05:00): your score, tokens and code for that day. Click a row to see which models you used.</div><div class="vbar"><span>Daily sessions log · a day ends at 0${S.dayEndsHour}:00 the next morning · all time</span><span class="push">${ds.length} days · click a row</span></div>
+    <table><thead><tr>${['Day', 'Class', 'Υ', 'C:I:O', 'Prm', 'Req', 'Typed', 'Out', 'CR', 'CW', '∑', '', '+/−', 'Tools', 'Sess', 'Cost'].map((h) => `<th>${g(h)}</th>`).join('')}</tr></thead><tbody>`
+    + ds.map((d) => `<tr data-d="${d.day}"><td class="who">${new Date(d.day + 'T12:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}${trn(d.source)}</td>
+      <td><span class="badge">${d.cls ?? '—'}</span></td><td class="c-y">${ups(d.yield)}</td><td class="c-lev">${d.cio}</td><td>${fmt(d.prompts)}</td><td>${fmt(d.requests)}</td>
+      <td>${big(d.typed)}</td><td>${big(d.output)}</td><td>${big(d.cacheRead)}</td><td>${big(d.cacheWrite)}</td><td class="c-total">${big(d.total)}</td>
+      <td style="width:80px"><span class="tb" style="width:${d.total / mx * 100}%;background:var(--orange)"></span></td>
+      <td><span class="c-y">+${big(d.added)}</span>/<span class="c-red">${big(d.removed)}</span></td><td>${fmt(d.tools)}</td><td>${fmt(d.sessions)}</td><td>${d.cost ? '$' + fmt(d.cost, 2) : '—'}</td></tr>`
+      + (openDays.has(d.day) ? `<tr class="xp"><td colspan="16">models: ${d.models.map((m) => `<b class="c-y">${m.m}</b> ${big(m.n)}`).join(' · ')} · active ${mins(d.activeMin)}${d.commits ? ' · ' + d.commits + ' commits' : ''}</td></tr>` : '')).join('')
+    + '</tbody></table>';
+  el.querySelectorAll('tr[data-d]').forEach((tr) => tr.onclick = () => { const k = tr.dataset.d; openDays.has(k) ? openDays.delete(k) : openDays.add(k); render(); });
+}
+
+let UW = Number(store.get('tp-uw') || 1), U = null;
+function renderUsage(el) {
+  const tok = (n) => n >= 1e9 ? (n / 1e9).toFixed(1) + 'b' : n >= 1e6 ? (n / 1e6).toFixed(1) + 'm' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(n);
+  const head = `<div class="note">What Claude Code reports in /usage, per model.</div><div class="vbar"><span class="seg" id="uw">${[[1, 'Last 24 hours'], [0, 'All time'], [7, 'Last 7 days'], [30, 'Last 30 days']].map(([d, l]) => `<button data-d="${d}" class="${d === UW ? 'on' : ''}">${l}</button>`).join('')}</span></div>`;
+  if (!U || U.w !== UW) { el.innerHTML = head + '<div class="empty">Loading…</div>'; fetch(`${API}/api/usage?days=${UW}`).then((r) => r.json()).then((d) => { U = { w: UW, d }; if (view === 'usage') renderView(); }).catch(() => {}); }
+  else el.innerHTML = head + `<table><thead><tr>${['Model', '%', 'In', 'Out', 'Cache read', 'Cache write'].map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>`
+    + U.d.models.map((m) => `<tr><td class="who">${m.model}</td><td>${(m.share * 100).toFixed(1)}%</td><td>${tok(m.input)}</td><td>${tok(m.output)}</td><td>${tok(m.cacheRead)}</td><td>${tok(m.cacheWrite)}</td></tr>`).join('') + '</tbody></table>';
+  el.querySelectorAll('#uw button').forEach((b) => b.onclick = () => { UW = Number(b.dataset.d); store.set('tp-uw', String(UW)); renderView(); });
+}
+
+const MICON = { tokens: '◆', best: '★', class: '▲', first: '✦', streak: '🔥', count: '#' };
+function renderMiles(el) {
+  const ms = S.milestones || [];
+  el.innerHTML = `<div class="note">Moments worth noticing: new personal bests, class-ups, token landmarks and streaks, found by comparing your daily snapshots.</div><div class="vbar"><span>Recent milestones · all time · from snapshot deltas</span><span class="push">${ms.length}</span></div>`
+    + (ms.length ? ms.map((m) => `<div class="ms"><span class="dt">${new Date(m.ms).toLocaleDateString([], { month: 'short', day: 'numeric', year: '2-digit' })}</span>
+      <span class="ic k-${m.kind}">${MICON[m.kind] || '·'}</span><span class="lb">${m.label}</span><span class="dt">${m.detail || ''}</span></div>`).join('') : '<div class="empty">No milestones yet</div>');
+}
+
+function renderView() {
+  const bt = document.getElementById('btable'), alt = document.getElementById('alt'), sec = document.getElementById('board');
+  const on = view !== 'board'; bt.style.display = on ? 'none' : ''; document.getElementById('bnote').style.display = on ? 'none' : ''; alt.style.display = on ? '' : 'none'; sec.classList.toggle('wide', on);
+  if (!on) return;
+  const keep = sec.scrollTop;
+  if (view === 'sessions') renderSessions(alt); else if (view === 'daily') renderDaily(alt); else if (view === 'usage') renderUsage(alt); else renderMiles(alt);
+  sec.scrollTop = keep;
+}
+async function refreshSessions() {
+  if (view !== 'sessions' && !openId) return;
+  try { L = await (await fetch(`${API}/api/sessions?days=${days}`)).json(); if (view === 'sessions') renderView(); } catch {}
+}
+
+// ---- Session popup: Median · This · Diff, #X/N, percentile bars, history curve, project top-10, prev/next ----
+async function openSession(id) {
+  openId = id; openMdl = null; syncHash(); document.getElementById('modal').classList.add('on');
+  const box = document.getElementById('mbox');
+  let d; try { d = await (await fetch(`${API}/api/session?days=${days}&id=${encodeURIComponent(id)}`)).json(); } catch { d = null; }
+  if (openId !== id) return;
+  if (!d || !d.id) { box.innerHTML = '<div class="mnav"><button disabled>◀ prev</button><button id="mclose">close</button><button disabled>next ▶</button></div><div class="empty">That session was not found in this window. It may be older than the window, or the link may be wrong. Try a longer window.</div>'; box.querySelector('#mclose').onclick = closeSession; return; }
+  const sfmt = (k, v) => v == null ? '—' : k === 'yield' ? ups(v) : k === 'snr' || k === 'hitRate' ? pct(v) : k === 'cost' ? '$' + fmt(v, 2)
+    : k === 'velocity' ? fmt(v, 2) : k === 'leverage' ? fmt(v, 0) + '×' : k === 'minutes' ? mins(v) : big(v);
+  const COL = ['#ff4d4d', '#ff9a3c', '#ffe600', '#a6ff00', '#00e5ff', '#a855f7'];
+  const rows = d.stats.map((s) => {
+    const p = s.pct == null ? null : s.dir < 0 ? 1 - s.pct : s.pct; const c = p == null ? 'transparent' : s.dir === 0 ? '#71826a' : COL[dec(p)];
+    const good = s.diff == null ? '' : (s.dir === 0 ? 'c-m' : (s.diff * s.dir >= 0 ? 'c-y' : 'c-red'));
+    const df = s.diff == null ? '—' : (s.diff >= 0 ? '+' : '−') + sfmt(s.k, Math.abs(s.diff)).replace(/^\$/, '$');
+    return `<tr><td class="l">${s.label}<div class="bar2"><i style="width:${(s.pct ?? 0) * 100}%;background:${c}"></i></div></td><td class="c-m">${sfmt(s.k, s.avg)}</td>
+      <td class="who">${sfmt(s.k, s.val)}</td><td class="${good}">${df}</td><td class="c-m">${s.pct == null ? '' : 'P' + Math.round(s.pct * 100)}</td></tr>`;
+  }).join('');
+  // Cumulative curve: output (lime) and Σ tokens (orange), each scaled to its own max.
+  const cv = d.curve, t0 = cv[0]?.[0] || 0, t1 = cv.at(-1)?.[0] || 1, W = 560, H = 150;
+  const mo = Math.max(1, ...cv.map((c) => c[1])), mt = Math.max(1, ...cv.map((c) => c[2]));
+  const line = (i, m) => cv.map((c, j) => `${j ? 'L' : 'M'}${((c[0] - t0) / Math.max(1, t1 - t0) * W).toFixed(1)},${(H - 6 - c[i] / m * (H - 14)).toFixed(1)}`).join('');
+  const mt_ = Math.max(1, ...d.models.map((m) => m.n));
+  box.innerHTML = `
+    <div class="mnav"><button id="mprev" ${d.prev ? '' : 'disabled'}>◀ prev</button><button id="mclose">close</button><button id="mnext" ${d.next ? '' : 'disabled'}>next ▶</button></div>
+    <div class="mhead"><div><div class="t">${d.project}</div><div class="c-m">${d.id} · ${new Date(d.first).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} → ${new Date(d.last).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} ${trn(d.source, true)}</div></div>
+      <div class="r">${d.rank ? `<b>#${d.rank}</b><span class="c-m">/${d.field}</span> <span class="c-m">(Top ${Math.max(1, Math.round(d.top * 100))}%)</span>` : `<span class="c-red">✗ not ranked</span> <span class="c-m">needs ≥${d.eligibleRule.prompts} prompts & ≥${d.eligibleRule.requests} requests</span>`}
+        <div class="c-m">${d.projectRank ? `#${d.projectRank}/${d.projectField} in ${d.project}` : ''}</div></div>
+      <div class="x">${mins(d.minutes)} · ${fmt(d.prompts)} prompts · ${fmt(d.requests)} req<br>${d.subReq ? fmt(d.subReq) + ' subagent req · ' : ''}${d.compactions ? d.compactions + ' compactions · ' : ''}${d.commits ? d.commits + ' commits' : ''}</div></div>
+    <div class="yband"><span>${g('Υ Yield')}</span><b>${ups(d.yield)}</b><span>${d.cls ?? '—'}</span></div>
+    <div class="mbody">
+      <div class="mcol"><table class="st"><thead><tr><th style="text-align:left">Stats</th><th>Your median</th><th>This session</th><th>Diff</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+        <div class="c-m" style="font-size:9px">Median of your ${d.field} eligible sessions in this window. Bar = percentile among them (red P0–20 → violet P90+; grey = neutral stat).</div></div>
+      <div class="mcol">
+        <div class="sub" style="margin-top:0">History · cumulative <span class="c-y">output</span> & <span class="c-total">∑ tokens</span> per request</div>
+        <svg class="cv" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><path d="${line(2, mt)}" fill="none" stroke="#ff9a3c" stroke-width="1.5"/><path d="${line(1, mo)}" fill="none" stroke="#a6ff00" stroke-width="1.5"/></svg>
+        <div class="c-m" style="display:flex;justify-content:space-between"><span>${clock(t0)}</span><span>out ${big(mo)} · ∑ ${big(mt)}</span><span>${clock(t1)}</span></div>
+        <div class="sub">Totals</div>
+        <div class="kv"><span>${g('Typed · logged I', 'Typed · logged I')}</span><span>${big(d.typed)} · ${big(d.input)}</span><span>Output</span><span>${big(d.output)}</span>
+          <span>Cache read · write</span><span>${big(d.cacheRead)} · ${big(d.cacheWrite)}</span><span>Lines</span><span><span class="c-y">+${fmt(d.added)}</span> / <span class="c-red">−${fmt(d.removed)}</span></span>
+          <span>Tool calls · failed</span><span>${fmt(d.tools)} · ${fmt(d.toolFail)}</span><span>Cost</span><span>${d.cost ? '$' + fmt(d.cost, 2) : '—'}</span></div>
+        <div class="sub">Models</div>
+        ${d.models.map((m) => `<div style="display:grid;grid-template-columns:110px 1fr 60px;gap:6px;align-items:center"><span class="lk" data-model="${esc(m.m)}" data-tip="Open this model's detail.">${m.m}</span><span class="tb" style="width:${m.n / mt_ * 100}%;background:var(--lime)"></span><span style="text-align:right">${big(m.n)}</span></div>`).join('')}
+        <div class="sub">Top tools</div>
+        <div class="chips">${d.topTools.map((t) => `<span class="chip">${tname(t.t)} <b>${fmt(t.n)}</b></span>`).join('') || '<span class="c-m">none</span>'}</div>
+        <div class="sub">Top sessions · ${d.project} · by Υ</div>
+        <table class="st"><tbody>${d.projectTop.map((x, i) => `<tr data-id="${x.id}" style="cursor:pointer" class="${x.id === d.id ? 'primary' : ''}"><td class="l">#${i + 1} ${dayFmt(x.first)} · ${x.id.slice(0, 6)}</td><td class="c-y">${ups(x.yield)}</td><td><span class="badge">${x.cls ?? '—'}</span></td><td>${big(x.output)} out</td><td>${fmt(x.prompts)} prm</td><td>${mins(x.minutes)}</td></tr>`).join('') || '<tr><td class="c-m">no eligible sessions</td></tr>'}</tbody></table>
+      </div></div>`;
+  box.querySelector('#mclose').onclick = closeSession;
+  box.querySelector('#mprev').onclick = () => d.prev && openSession(d.prev);
+  box.querySelector('#mnext').onclick = () => d.next && openSession(d.next);
+  box.querySelectorAll('tr[data-id]').forEach((tr) => tr.onclick = () => openSession(tr.dataset.id));
+  box.querySelectorAll('[data-model]').forEach((el) => el.onclick = () => showModel(el.dataset.model));
+}
+
+// ---- Model popup: this model vs all models, daily curve, top sessions, prev/next ----
+const mfmt = (k, v) => v == null ? '—' : k === 'yield' ? ups(v) : k === 'snr' || k === 'hitRate' ? pct(v) : k === 'cost' ? '$' + fmt(v, 2) : k === 'velocity' ? fmt(v, 2) : k === 'leverage' ? fmt(v, 0) + '×' : big(v);
+async function showModel(name) {
+  openMdl = name; openId = null; syncHash(); document.getElementById('modal').classList.add('on');
+  const box = document.getElementById('mbox');
+  let d; try { const r = await fetch(`${API}/api/model?days=${days}&name=${encodeURIComponent(name)}`); d = r.ok ? await r.json() : null; } catch { d = null; }
+  if (openMdl !== name) return;
+  if (!d?.name) { box.innerHTML = `<div class="mnav"><button disabled>◀ prev</button><button id="mclose">close</button><button disabled>next ▶</button></div><div class="empty">No data for ${esc(name)} in this window. Try a longer one.</div>`; box.querySelector('#mclose').onclick = closeSession; return; }
+  const T = d.totals, sn = (m) => m.replace('claude-', ''), n = d.daily.length, W = 560, H = 150;
+  const mo = Math.max(1, ...d.daily.map((x) => x.output)), mt = Math.max(1, ...d.daily.map((x) => x.total));
+  const xy = (k, m) => d.daily.map((x, i) => [n > 1 ? i / (n - 1) * W : W / 2, H - 6 - x[k] / m * (H - 14)]);
+  const srcs = d.daily.map((x) => x.source), anyT = srcs.includes('transcript');
+  const rows = d.stats.map((s) => {
+    const good = s.diff == null ? '' : s.k === 'cost' ? 'c-m' : s.diff >= 0 ? 'c-y' : 'c-red';
+    const noCost = s.k === 'cost' && !s.model;
+    return `<tr><td class="l">${g(s.label.replace(/ \(.*\)/, ''), s.label)}</td><td class="c-m">${mfmt(s.k, s.all)}</td><td class="who">${noCost ? '—' : mfmt(s.k, s.model)}</td>
+      <td class="${good}">${s.diff == null || noCost ? '—' : (s.diff >= 0 ? '+' : '−') + mfmt(s.k, Math.abs(s.diff))}</td></tr>`;
+  }).join('');
+  box.innerHTML = `
+    <div class="mnav"><button id="mprev" ${d.prev ? '' : 'disabled'}>◀ ${d.prev ? esc(sn(d.prev)) : 'prev'}</button><button id="mclose">close</button><button id="mnext" ${d.next ? '' : 'disabled'}>${d.next ? esc(sn(d.next)) : 'next'} ▶</button></div>
+    <div class="mhead"><div><div class="t">${esc(d.name)}</div><div class="c-m">model · ${winLabel()} ${trn(d.source, true)}</div></div>
+      <div class="r"><b>${pct(T.share)}</b> <span class="c-m">of your tokens</span></div>
+      <div class="x">${fmt(T.requests)} req · ${big(T.output)} out<br>${big(T.total)} ∑ tokens</div></div>
+    <div class="yband"><span>${g('Υ Yield')}</span><b>${ups(T.yield)}</b><span>${T.cls ?? '—'}</span></div>
+    <div class="mbody">
+      <div class="mcol"><table class="st"><thead><tr><th style="text-align:left">Stats</th><th>All models</th><th>This model</th><th>Diff</th></tr></thead><tbody>${rows}</tbody></table>
+        <div class="c-m" style="font-size:9px">Both columns cover the same window (${winLabel()}). Diff is this model minus all models. Cost is only known for live telemetry, so transcript-only models show a dash.</div></div>
+      <div class="mcol">
+        <div class="sub" style="margin-top:0">Per day · <span class="c-y">output</span> & <span class="c-total">∑ tokens</span>${anyT ? ` · <span class="trn" style="margin:0" tabindex="0" data-tip="${TRN_TIP}"><i class="dl"></i>dashed = ≈ from transcripts</span>` : ''}</div>
+        ${n ? `<svg class="cv" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${runs(xy('total', mt), srcs, '#ff9a3c')}${runs(xy('output', mo), srcs, '#a6ff00')}${n === 1 ? `<circle cx="${W / 2}" cy="${xy('output', mo)[0][1]}" r="3" fill="#a6ff00"/>` : ''}</svg>
+        <div class="c-m" style="display:flex;justify-content:space-between"><span>${d.daily[0].day.slice(5)}</span><span>peak out ${big(mo)} · ∑ ${big(mt)}</span><span>${d.daily[n - 1].day.slice(5)}</span></div>` : '<div class="empty">No days in this window</div>'}
+        <div class="sub">Totals</div>
+        <div class="kv"><span>${g('Typed · logged I')}</span><span>${big(T.typed)} · ${big(T.input)}</span><span>Output</span><span>${big(T.output)}</span>
+          <span>Cache read · write</span><span>${big(T.cacheRead)} · ${big(T.cacheWrite)}</span><span>${g('Cache hit rate')}</span><span>${pct(T.hitRate)}</span><span>Cost</span><span>${T.cost ? '$' + fmt(T.cost, 2) : '—'}</span></div>
+        <div class="sub">Top sessions · ${esc(sn(d.name))} · by Υ</div>
+        <table class="st"><tbody>${d.sessions.map((x, i) => `<tr data-id="${x.id}" style="cursor:pointer"><td class="l">#${i + 1} ${esc(x.project)} · ${dayFmt(x.first)} · ${x.id.slice(0, 6)}${trn(x.source)}</td><td class="c-y">${ups(x.yield)}</td><td><span class="badge">${x.cls ?? '—'}</span></td><td>${big(x.output)} out</td><td>${fmt(x.requests)} req</td></tr>`).join('') || '<tr><td class="c-m">no sessions</td></tr>'}</tbody></table>
+      </div></div>`;
+  box.querySelector('#mclose').onclick = closeSession;
+  box.querySelector('#mprev').onclick = () => d.prev && showModel(d.prev);
+  box.querySelector('#mnext').onclick = () => d.next && showModel(d.next);
+  box.querySelectorAll('tr[data-id]').forEach((tr) => tr.onclick = () => openSession(tr.dataset.id));
+}
+function closeSession() { openId = null; openMdl = null; document.getElementById('modal').classList.remove('on'); syncHash(); }
+document.getElementById('modal').onclick = (e) => { if (e.target.id === 'modal') closeSession(); };
+
+// ---- Dialogs: calculator, submit preview, card ----
+let dlgTok = 0, dlgFrom = null;
+const dlgOn = () => document.getElementById('dlg').classList.contains('on');
+function openDlg(title, body, wide) {
+  dlgFrom = document.activeElement; const tok = ++dlgTok, b = document.getElementById('dbox'); b.className = 'dbox' + (wide ? ' wide' : '');
+  b.innerHTML = `<div class="dh"><b class="px" id="dtitle">${title}</b><button class="btn" id="dclose">close ✕</button></div><div id="dbody">${body}</div>`;
+  document.getElementById('dlg').classList.add('on'); b.querySelector('#dclose').onclick = closeDlg; b.querySelector('#dclose').focus();
+  return { box: document.getElementById('dbody'), tok };
+}
+function closeDlg() { dlgTok++; document.getElementById('dlg').classList.remove('on'); hideTip(); try { dlgFrom?.focus?.({ preventScroll: true }); } catch {} dlgFrom = null; }
+document.getElementById('dlg').onclick = (e) => { if (e.target.id === 'dlg') closeDlg(); };
+async function copyText(t, btn) {
+  let ok = false; try { await navigator.clipboard.writeText(t); ok = true; } catch {}
+  if (!ok) { const ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select(); try { ok = document.execCommand('copy'); } catch {} ta.remove(); }
+  const old = btn.textContent; btn.textContent = ok ? 'Copied ✓' : 'Copy failed, select and copy by hand'; setTimeout(() => btn.textContent = old, 1800);
+}
+
+function openCalc() {
+  const cur = S?.total?.board?.typed?.yield;
+  const nice = (v) => { const p = 10 ** (Math.floor(Math.log10(v)) - 1); return Math.round(v / p) * p; };
+  const { box } = openDlg('What would it take?', `<div class="note" style="margin:0 0 4px">Pick a Υ score you would like to reach. Υ = cache read × output ÷ input², so below you see what each of the three would need on its own, with the other two left where they are now. Input counts twice (squared), so a small cut in typed input moves Υ the most. Based on your current window (${winLabel()}).</div>
+    <div class="row"><label>Target Υ <input class="in" id="ct" type="number" min="1" step="any" value="${cur ? nice(cur * 2) : 1000}"></label>${[1.5, 2, 5, 10].map((m) => `<button class="btn" data-m="${m}" data-tip="Aim for ${m} times your current Υ.">×${m}</button>`).join('')}</div><div id="cr"></div>`);
+  const inp = box.querySelector('#ct'), out = box.querySelector('#cr'); let seq = 0, tmr;
+  const lever = (title, why, need, now) => { const r = now ? need / now : null; const ch = r == null ? '' : r >= 2 ? '×' + fmt(r, 1) : (r >= 1 ? '+' : '−') + fmt(Math.abs(r - 1) * 100, 0) + '%';
+    return `<div class="lev"><b class="c-hi">${title}</b><br>${why} <b class="c-y">${big(need)}</b> <span class="c-m">(now ${big(now)}${ch ? ', ' + ch : ''})</span></div>`; };
+  const run = async () => {
+    const t = Number(inp.value), my = ++seq;
+    if (!(t > 0)) { out.innerHTML = '<div class="c-m" style="margin-top:6px">Enter a number above 0.</div>'; return; }
+    let d; try { d = await (await fetch(`${API}/api/calc?days=${days}&target=${t}`)).json(); } catch { d = null; }
+    if (my !== seq || !dlgOn()) return;
+    if (!d?.current) { out.innerHTML = '<div class="c-red" style="margin-top:6px">Could not reach the receiver.</div>'; return; }
+    const c = d.current, n = d.needs;
+    const now = `<div class="c-m" style="margin-top:6px">Now: Υ <b class="c-y">${ups(c.yield)}</b> · typed input ${big(c.input)} · output ${big(c.output)} · cache read ${big(c.cacheRead)}</div>`;
+    out.innerHTML = !c.yield ? now + '<div class="lev">Not enough data in this window yet.</div>'
+      : c.yield >= t ? now + `<div class="lev"><b class="c-y">You are already above Υ ${ups(t)}.</b> Try a higher target.</div>`
+      : !n ? now : now + lever('Get more output', 'The model would have to write', n.output_needed, c.output) + lever('Reuse more cached context', 'Cache reads would have to reach', n.cacheRead_needed, c.cacheRead) + lever('Type less', 'Your typed input would have to fall to', n.input_max, c.input);
+  };
+  inp.oninput = () => { clearTimeout(tmr); tmr = setTimeout(run, 250); };
+  box.querySelectorAll('button[data-m]').forEach((b) => b.onclick = () => { if (cur) { inp.value = nice(cur * Number(b.dataset.m)); run(); } });
+  run();
+}
+
+async function openSubmit() {
+  const { box, tok } = openDlg('Submit to board', '<div class="c-m">Building the preview…</div>', true);
+  let d; try { d = await (await fetch(`${API}/api/submit?dryRun=1&days=${days}`, { method: 'POST' })).json(); } catch { d = null; }
+  if (tok !== dlgTok) return;
+  const p = d?.payload;
+  if (!p) { box.innerHTML = `<div class="warn">Could not build the preview${d?.error ? ': ' + esc(d.error) : ''}. Nothing was sent.</div>`; return; }
+  const rt = p.raw_telemetry || {}, json = JSON.stringify(p, null, 2);
+  box.innerHTML = `<div class="warn"><b>Preview only. Sending is not enabled yet.</b> Nothing was sent and nothing left your computer. This shows the snapshot that would go to the SignalAF board once sending is switched on.${d.reason && d.reason !== 'dryRun requested' ? '<br>' + esc(d.reason) : ''}</div>
+    <div class="kv"><span>Codename</span><span>${esc(p.codename)}</span><span>Window</span><span>${esc(d.window || p.window?.type)} (${winLabel()})</span>
+      <span>Turns</span><span>${fmt(rt.turns_total)}</span><span>∑ tokens</span><span>${big(rt.tokens_total)}</span>
+      <span>${g('Logged input')}</span><span>${big(rt.tokens_input_fresh)}</span><span>Output</span><span>${big(rt.tokens_output)}</span>
+      <span>Cache read · write</span><span>${big(rt.tokens_cache_read)} · ${big(rt.tokens_cache_creation)}</span>
+      <span>Source tag</span><span>${esc(p.metadata?.source ?? '—')}</span><span>Snapshot hash</span><span title="${esc(p.agent?.snapshot_hash)}">${esc((p.agent?.snapshot_hash || '').slice(0, 22))}…</span>
+      <span>Identity</span><span>${d.enrolled ? 'enrolled' : 'not enrolled yet (placeholder ids)'}</span><span>Would post to</span><span>${esc(d.would_post)}</span></div>
+    <div class="note" style="margin-top:8px">It holds counts only. No prompt text, code or file names appear in it (see the full payload below). Your typed input is not included: the payload uses the API's logged input, so typed input stays on this computer.</div>
+    <details><summary>Full payload (JSON)</summary><pre class="js">${esc(json)}</pre></details>
+    <div class="row"><button class="btn" id="cpj">Copy JSON</button></div>`;
+  box.querySelector('#cpj').onclick = (e) => copyText(json, e.target);
+}
+
+function openCard() {
+  let theme = store.get('tp-ctheme', 'dark'); if (theme !== 'light') theme = 'dark';
+  const { box } = openDlg('Operator card', '<div id="cbody"></div>', true), body = box.querySelector('#cbody');
+  const draw = () => {
+    const path = `${API}/card.svg?days=${days}&theme=${theme}`, url = location.origin + path, md = `![SigRank operator card](${url})`;
+    body.innerHTML = `<div class="note" style="margin:0 0 4px">A small image of your score (${winLabel()}) with your class, Υ, token mix and a daily trend. Paste the markdown into a README or profile.</div>
+      <div class="row"><div class="seg" id="cth"><button data-t="dark" class="${theme === 'dark' ? 'on' : ''}">Dark</button><button data-t="light" class="${theme === 'light' ? 'on' : ''}">Light</button></div><a class="btn" href="${path}" target="_blank" rel="noopener" style="text-decoration:none">Open SVG</a></div>
+      <div class="cardimg" style="background:${theme === 'light' ? '#e9ecdf' : '#050605'}"><img src="${path}" alt="Operator card" width="468" height="100"></div>
+      <textarea class="in" id="cmd" readonly aria-label="Markdown snippet">${esc(md)}</textarea>
+      <div class="row"><button class="btn" id="cpm">Copy markdown</button><button class="btn" id="cpu">Copy link</button></div>
+      ${/^(localhost|127\.|\[?::1)/.test(location.hostname) ? '<div class="note">This link points at the receiver on your computer, so it only loads for you. To share the card, save the SVG and host it somewhere public, then use that link.</div>' : ''}`;
+    body.querySelectorAll('#cth button').forEach((b) => b.onclick = () => { theme = b.dataset.t; store.set('tp-ctheme', theme); draw(); });
+    body.querySelector('#cpm').onclick = (e) => copyText(md, e.target); body.querySelector('#cpu').onclick = (e) => copyText(url, e.target);
+    body.querySelector('#cmd').onfocus = (e) => e.target.select();
+  };
+  draw();
+}
+document.addEventListener('click', (e) => { const a = e.target.closest?.('[data-act]'); if (a) ({ calc: openCalc, submit: openSubmit, card: openCard })[a.dataset.act]?.(); });
+document.getElementById('bb').addEventListener('click', (e) => { const r = e.target.closest('tr[data-model]'); if (r) showModel(r.dataset.model); });
+
+const isFirst = () => S.total.requests === 0 && !(S.dailies?.length);
+const sk = (...r) => r.map((row) => `<div class="sk">${row.map(([w, c = '']) => `<i class="${c}" style="width:${w}%"></i>`).join('')}</div>`).join('');
+let setupHtml = '';
+function renderFirst() {
+  const ev = S.feed.length > 0 || S.total.prompts > 0 || S.tools.length > 0;
+  const step = (st, t, d) => `<li class="${st}"><i>${st === 'ok' ? '✓' : st === 'wait' ? '…' : '○'}</i><div><b class="c-hi">${t}</b><div class="c-m">${d}</div></div></li>`;
+  const card = (t, d, m) => `<div class="card"><span class="tag2">example</span><h3>${t}</h3><p>${d}</p>${m}</div>`;
+  const html = `<div class="panel"><div class="ph">Setup checklist</div>
+      <ol class="steps">
+        ${step(ev ? 'ok' : 'todo', 'Telemetry is switched on', ev ? 'Events are arriving, so Claude Code is sending data.' : 'Run <code>node src/cli.mjs setup</code> (or <code>sigrank-otel-cc setup</code>), then restart Claude Code. This page cannot read your settings, so the box ticks once data shows up. <code>doctor</code> checks it for you.')}
+        ${step('ok', 'Receiver is live', 'This page is served by the receiver on your computer, and it answered just now.')}
+        ${step('wait', 'First prompt received', 'Send any prompt in Claude Code. Numbers appear here within a few seconds.')}
+      </ol>
+      <div class="note" style="margin-top:10px">Nothing leaves your computer. Everything stays in a local file.</div></div>
+    <div class="panel"><div class="ph">Waiting for your first prompt</div>
+      <div class="note" style="margin-bottom:8px">Here's what will appear, with your own numbers instead of these grey sketches.</div>
+      <div class="pv">
+        ${card('Board', 'Your totals beside the public leaderboard and its #1.', sk([[22], [14, 'a'], [14], [14], [16, 'o']], [[22], [14, 'a'], [14], [14], [16, 'o']], [[22], [14], [14], [14], [16]]))}
+        ${card('Sessions', 'Every Claude Code session ranked by Υ. Click one for detail.', sk([[18], [10, 'a'], [20], [12], [12]], [[18], [10, 'a'], [20], [12], [12]], [[18], [10, 'a'], [20], [12], [12]]))}
+        ${card('Daily', 'One row per day: score, tokens, lines of code.', sk([[16], [10, 'a'], [24], [30, 'o']], [[16], [10, 'a'], [24], [18, 'o']], [[16], [10, 'a'], [24], [24, 'o']]))}
+        ${card('Milestones', 'Personal bests, class-ups and streaks as they happen.', sk([[8, 'a'], [50]], [[8, 'a'], [38]], [[8, 'a'], [56]]))}
+        ${card('Operator readout', 'Your big Υ number and where it sits on the Four Degrees ladder.', `<div class="big" style="font-size:16px;color:var(--muted)">Υ —</div><div style="height:5px;margin-top:8px;background:linear-gradient(90deg,#1f281c,#2f4a12 40%,#6aa300 75%,var(--lime));opacity:.5"></div>`)}
+        ${card('Shipped · pace · cache', 'Lines shipped, speed, cache reuse, and a per-day line graph.', `<svg viewBox="0 0 120 34" preserveAspectRatio="none"><polyline points="0,28 20,22 40,25 60,12 80,16 100,6 120,10" fill="none" stroke="#2f4a12" stroke-width="1.5" vector-effect="non-scaling-stroke"/></svg>`)}
+      </div></div>`;
+  if (html !== setupHtml) { setupHtml = html; document.getElementById('setup').innerHTML = html; }
+}
+function render() {
+  if (!S) return;
+  const fa = document.activeElement, kf = (x) => x.dataset.tip ?? x.dataset.act, fk = fa && kf(fa), same = () => [...document.querySelectorAll('[data-tip],[data-act]')].filter((x) => kf(x) === fk);
+  const fi = fk ? same().indexOf(fa) : -1;
+  const first = isFirst(); document.querySelector('main').classList.toggle('first', first);
+  if (first) renderFirst(); else { renderStrip(); renderBoard(); renderView(); renderReadout(); renderShip(); renderTools(); renderFeed(); }
+  if (fi >= 0) same()[fi]?.focus({ preventScroll: true });
+  if (tipEl && !tipEl.isConnected) { const n = document.activeElement?.dataset?.tip ? document.activeElement : document.elementFromPoint(mx, my)?.closest('[data-tip]'); n ? showTip(n) : hideTip(); }
+}
+
+async function refresh() {
+  try {
+    [S, R] = await Promise.all([fetch(`${API}/api/summary?days=${days}`).then((r) => r.json()), fetch(`${API}/api/sigrank?days=${days}`).then((r) => r.json()).catch(() => null)]);
+    document.getElementById('dot').className = 'dot';
+    document.getElementById('status').textContent = `live · synced ${new Date().toLocaleTimeString()}`;
+    render();
+  } catch {
+    document.getElementById('dot').className = 'dot off';
+    document.getElementById('status').textContent = 'receiver not reachable';
+  }
+}
+async function refreshBoard() {
+  try { const r = await fetch(`${API}/api/board?days=${days}`); B = r.ok ? await r.json() : null; } catch { B = null; }
+  render();
+}
+
+async function refreshDeltas() {
+  try { const r = await fetch(API + '/api/deltas'); D = r.ok ? await r.json() : null; } catch { D = null; }
+  render();
+}
+function setView(v) {
+  view = v; store.set('tp-view', v); document.querySelectorAll('#view button').forEach((x) => x.classList.toggle('on', x.dataset.v === v));
+  document.getElementById('board').scrollTop = 0; syncHash(); render(); refreshSessions();
+}
+function applyHash() {
+  const h = parseHash();
+  if (VIEWS.includes(h.view) && h.view !== view) setView(h.view);
+  if (h.session) { if (h.session !== openId) openSession(h.session); } else if (h.model) { if (h.model !== openMdl) showModel(h.model); } else if (openId || openMdl) closeSession();
+}
+addEventListener('hashchange', applyHash);
+function bindSeg(id, attr, get, set) {
+  const bs = document.querySelectorAll(`#${id} button`);
+  bs.forEach((b) => { b.classList.toggle('on', b.dataset[attr] === String(get())); b.onclick = () => { set(b.dataset[attr]); bs.forEach((x) => x.classList.toggle('on', x === b)); }; });
+}
+bindSeg('win', 'd', () => days, (v) => { days = Number(v); store.set('tp-days', v); L = null; refresh(); refreshBoard(); refreshSessions(); });
+bindSeg('view', 'v', () => view, setView);
+bindSeg('mode', 'm', () => mode, (v) => { mode = v; store.set('tp-mode', v); render(); });
+bindSeg('ftab', 't', () => ftab, (v) => { ftab = v; store.set('tp-ftab', v); render(); });
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') hideTip();
+  if (dlgOn()) { if (e.key === 'Escape') closeDlg(); return; }
+  if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+  if (openId || openMdl) { if (e.key === 'Escape') closeSession(); if (e.key === 'ArrowLeft') document.getElementById('mprev')?.click(); if (e.key === 'ArrowRight') document.getElementById('mnext')?.click(); return; }
+  if (e.key === 'r' || e.key === 'm') document.querySelector(`#mode button[data-m="${e.key === 'r' ? 'raw' : 'metrics'}"]`).click(); });
+
+refresh(); refreshBoard(); refreshDeltas();
+refreshSessions(); applyHash(); syncHash();
+setInterval(refreshDeltas, 60000); setInterval(refresh, 3000); setInterval(refreshBoard, 300000); setInterval(refreshSessions, 15000);
+</script>
+</body>
+</html>

@@ -7,12 +7,15 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { loadConfig } from './config.mjs';
+import { isStreamingStart, newShape, addShape, estimateOutput } from './streaming-usage.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const cfg = loadConfig();
 const live = path.resolve(process.argv[2] || cfg.out);
 const out = path.resolve(process.argv[3] || path.join(cfg.dataDir, 'backfill.jsonl'));
-const root = path.join(os.homedir(), '.claude/projects');
+const roots = (cfg.backfill.roots.length ? cfg.backfill.roots : ['~/.claude/projects']).map((p) => path.resolve(p.replace(/^~(?=\/|$)/, os.homedir())));
+// Off by default. On: a message whose last transcript record has stop_reason null (streaming-start usage) gets an estimated output_tokens.
+const fixStreaming = cfg.backfill.fixStreamingUsage;
 
 // Gap-fill against the live stream instead of a hard time cutoff:
 // - API requests are skipped only if OTel already has that request_id (sessions started before telemetry
@@ -51,11 +54,12 @@ function typed(rec) {
 const nano = (ms) => (BigInt(Math.round(ms)) * 1000000n).toString();
 
 const rows = []; let files = 0, skippedTests = 0;
+const ss = { messages: 0, recorded: 0, estimated: 0 };  // streaming-start usage: detected always, applied only with fixStreamingUsage
 // Resumed/forked sessions copy earlier records into new files: dedupe globally.
 const seenReq = new Set(), seenPrompt = new Set(), seenTool = new Set();
-for (const f of walk(root)) {
+for (const f of roots.filter((d) => fs.existsSync(d)).flatMap((d) => [...walk(d)])) {
   files++;
-  const last = new Map(); const prompts = []; const toolUses = new Map(); let sid = null, test = false;
+  const last = new Map(); const shape = new Map(); const prompts = []; const toolUses = new Map(); let sid = null, test = false;
   for (const line of fs.readFileSync(f, 'utf8').split('\n')) {
     if (!line) continue;
     let r; try { r = JSON.parse(line); } catch { continue; }
@@ -70,6 +74,7 @@ for (const f of walk(root)) {
     }
     if (r.type === 'assistant' && r.message?.usage && r.message?.id && !liveReq.has(r.requestId)) {
       last.set(r.message.id, { r, ms });
+      addShape(shape.get(r.message.id) || shape.set(r.message.id, newShape()).get(r.message.id), r.message.content);
       if (early) for (const b of r.message.content || []) if (b?.type === 'tool_use') toolUses.set(b.id, { ms, name: b.name });
     }
   }
@@ -79,8 +84,13 @@ for (const f of walk(root)) {
     const u = r.message.usage, m = r.message.model;
     if (!m || m === '<synthetic>' || seenReq.has(id)) continue;
     seenReq.add(id);
-    rows.push({ kind: 'logs', name: 'claude_code.api_request', time: nano(ms), attrs: { ...base(ms), model: m,
-      input_tokens: u.input_tokens || 0, output_tokens: u.output_tokens || 0, cache_read_tokens: u.cache_read_input_tokens || 0,
+    let out = u.output_tokens || 0, est = null;
+    if (isStreamingStart(r.message.stop_reason)) {
+      const e = estimateOutput(shape.get(id)); ss.messages++; ss.recorded += out; ss.estimated += Math.max(out, e);
+      if (fixStreaming && e > out) { est = { output_tokens_logged: out }; out = e; }
+    }
+    rows.push({ kind: 'logs', name: 'claude_code.api_request', time: nano(ms), attrs: { ...base(ms), model: m, ...(est && { estimated: true, ...est }),
+      input_tokens: u.input_tokens || 0, output_tokens: out, cache_read_tokens: u.cache_read_input_tokens || 0,
       cache_creation_tokens: u.cache_creation_input_tokens || 0, cost_usd: r.costUSD || 0, request_id: r.requestId,
       query_source: r.isSidechain ? 'agent:backfill' : 'repl_main_thread' } });
   }
@@ -90,5 +100,6 @@ for (const f of walk(root)) {
 rows.sort((a, b) => (BigInt(a.time) < BigInt(b.time) ? -1 : 1));
 fs.writeFileSync(out, rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
 const c = (n) => rows.filter((r) => r.name === n).length;
+console.log(`streaming-start usage (stop_reason null): ${ss.messages} messages · recorded output ${ss.recorded} · estimate ${ss.estimated} · fixStreamingUsage ${fixStreaming ? 'ON' : 'off'}`);
 console.log(`transcripts ${files} (skipped ${skippedTests} test runs) · live from ${new Date(cutoff).toISOString()} · gap-fill vs ${liveReq.size} live requests`);
 console.log(`wrote ${rows.length} rows → ${out}: ${c('claude_code.api_request')} requests, ${c('claude_code.user_prompt')} prompts, ${c('claude_code.tool_result')} tool calls`);

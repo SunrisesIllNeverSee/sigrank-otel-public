@@ -23,7 +23,8 @@ export function sigrankRow(days) {
   if (!w) return { window: win, row: null, error: state.error, at: state.at };
   const p = w.pillars, c = cascade(p.input, p.output, p.cacheCreate, p.cacheRead), total = c.pillars.total;
   const wd = { '7d': 7, '30d': 30, '90d': 90 }[win];
-  return { window: win, at: state.at, error: state.error, messages: w.messages,
+  // grade: sigrank computes the row; inputs: where its pillars come from (tokenpull reads local logs).
+  return { window: win, at: state.at, error: state.error, messages: w.messages, grade: 'computed', inputs: 'logged', pipeline: 'computed · logs',
     t: { output: p.output, cacheRead: p.cacheRead, cacheWrite: p.cacheCreate, requests: w.messages, cost: 0 },
     row: { ...c, input: p.input, total, perDay: wd ? total / wd : null, scaleV: total > 0 ? Math.log10(total) : 0,
       construction: p.cacheRead > 0 ? p.cacheCreate / p.cacheRead : 0, costPer1M: 0,

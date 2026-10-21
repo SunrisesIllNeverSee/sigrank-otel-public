@@ -22,8 +22,10 @@ const get = async (p) => {
 
 // Drop anything that identifies the machine, the person or the wallet; keep tokens and scores.
 import os from 'node:os';
-import { createHash } from 'node:crypto';
+import { createHash, createHmac, randomBytes } from 'node:crypto';
 const USER = os.userInfo().username;
+const PROJECT_KEY = randomBytes(16);  // per export: project aliases are stable inside one snapshot, unlinkable across snapshots
+const projectAlias = (p) => 'project ' + createHmac('sha256', PROJECT_KEY).update(String(p)).digest('hex').slice(0, 4);
 const hashId = (id) => 's-' + createHash('sha256').update(String(id)).digest('hex').slice(0, 12);
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 const scrub = (v, key = '') => {
@@ -39,7 +41,7 @@ const scrub = (v, key = '') => {
   }
   if (typeof v === 'string') {
     let t = v.replace(/\/(Users|home)\/[^/\s"']+/g, '~');
-    if (key === 'project' && (t === USER || t === 'unknown')) t = 'home';
+    if (key === 'project') t = t === USER || t === 'unknown' ? 'home' : projectAlias(t);
     if (key === 'id' || key === 'session' || key === 'sessionId') t = t.replace(UUID, (m) => hashId(m));
     else t = t.replace(UUID, (m) => hashId(m));
     if (/^mcp__/.test(t)) t = 'mcp · ' + t.split('__')[1];
@@ -49,6 +51,28 @@ const scrub = (v, key = '') => {
   return v;
 };
 
+// git-local counts: aggregates only. Per-repo rows are localhost-only and never go in a snapshot. Waits (up to 90s) for the background count.
+async function gitCounts(d) {
+  for (let i = 0; i < 45; i++) {
+    const g = await get(`/api/git?days=${d}`);
+    if (!g) return null;
+    if (![g.window, g.paired].some((x) => x?.status === 'pending')) { delete g.window?.repos; delete g.paired?.repos; return g; }
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  return null;
+}
+
+// Derived artifact aggregates (class x day counts): no content, paths or file names exist in the payload. Waits for the background transcript read.
+async function artifactCounts(d) {
+  for (let i = 0; i < 45; i++) {
+    const a = await get(`/api/artifact?days=${d}`);
+    if (!a) return null;
+    if (a.status !== 'pending') return a;
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  return null;
+}
+
 const snap = {};
 const put = (url, data) => { if (data != null) snap[url.replace(UUID, (m) => hashId(m))] = scrub(data); };
 
@@ -57,6 +81,8 @@ put('/api/deltas', await get('/api/deltas'));
 for (const d of WINDOWS) {
   const summary = await get(`/api/summary?days=${d}`);
   put(`/api/summary?days=${d}`, summary);
+  put(`/api/git?days=${d}`, await gitCounts(d));
+  put(`/api/artifact?days=${d}`, await artifactCounts(d));
   put(`/api/sigrank?days=${d}`, await get(`/api/sigrank?days=${d}`));
   put(`/api/board?days=${d}`, await get(`/api/board?days=${d}`));
   put(`/api/usage?days=${d}`, await get(`/api/usage?days=${d}`));

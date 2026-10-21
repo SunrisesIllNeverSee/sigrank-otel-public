@@ -50,5 +50,6 @@ export function usage(days = 0) {
   const tot = models.reduce((s, m) => s + m.input + m.output + m.cacheRead + m.cacheWrite, 0) || 1;
   for (const m of models) m.share = (m.input + m.output + m.cacheRead + m.cacheWrite) / tot;
   models.sort((a, b) => b.share - a.share);
-  return { source: 'claude-transcripts', window: days ? `${days}d` : 'all', models };
+  // Token counts come straight from local transcripts (logged); the share column is computed from them.
+  return { source: 'claude-transcripts', grade: 'logged', shareGrade: 'computed', pipeline: 'computed · logs', window: days ? `${days}d` : 'all', models };
 }

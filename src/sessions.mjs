@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { cascade, typedTokens, rowSource, mixSource, isHarness } from './score.mjs';
+import { cascade, typedTokens, rowSource, mixSource, isHarness, rowGrade, gradeFields } from './score.mjs';
 
 // Eligibility, like BlitzStars' battle minimums: tiny sessions don't get ranked or averaged.
 export const ELIGIBLE = { prompts: 3, requests: 10 };
@@ -33,7 +33,7 @@ function scanProjects() {
 export const projectOf = (sid) => { if (!proj.has(sid)) scanProjects(); return proj.get(sid)?.project || 'unknown'; };
 
 const blank = () => ({ requests: 0, prompts: 0, typed: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0,
-  tools: 0, toolFail: 0, added: 0, removed: 0, commits: 0, compactions: 0, subReq: 0, models: {}, toolNames: {}, src: new Set(), first: 0, last: 0, curve: [] });
+  tools: 0, toolFail: 0, added: 0, removed: 0, commits: 0, compactions: 0, subReq: 0, models: {}, toolNames: {}, src: new Set(), gr: new Set(), first: 0, last: 0, curve: [] });
 
 // Metrics compared in the popup. dir: +1 = higher is better, -1 = lower is better, 0 = neutral.
 export const STATS = [
@@ -50,7 +50,7 @@ function build(rows) {
   const S = new Map();
   for (const r of rows) {
     const a = r.attrs || {}; const sid = a['session.id']; if (!sid) continue;
-    const ms = msOf(r); const s = S.get(sid) || S.set(sid, blank()).get(sid); s.src.add(rowSource(r));
+    const ms = msOf(r); const s = S.get(sid) || S.set(sid, blank()).get(sid); s.src.add(rowSource(r)); s.gr.add(rowGrade(r));
     if (ms) { s.first = s.first ? Math.min(s.first, ms) : ms; s.last = Math.max(s.last, ms); }
     if (r.name === 'claude_code.api_request' && !isHarness(a.query_source)) {
       const i = +a.input_tokens || 0, o = +a.output_tokens || 0, cr = +a.cache_read_tokens || 0, cw = +a.cache_creation_tokens || 0;
@@ -73,7 +73,7 @@ function build(rows) {
     const c = s.input > 0 || s.output > 0 ? cascade(s.input, s.output, s.cacheWrite, s.cacheRead) : null;
     const minutes = Math.max(1, (s.last - s.first) / 60000);
     all.push({
-      id: sid, source: mixSource(s.src), project: projectOf(sid), first: s.first, last: s.last, minutes,
+      id: sid, source: mixSource(s.src), ...gradeFields(s.gr), project: projectOf(sid), first: s.first, last: s.last, minutes,
       requests: s.requests, prompts: s.prompts, typed: s.typed, input: s.input, output: s.output, cacheRead: s.cacheRead, cacheWrite: s.cacheWrite,
       total, cost: s.cost, tools: s.tools, toolFail: s.toolFail, added: s.added, removed: s.removed, lines: s.added + s.removed,
       commits: s.commits, compactions: s.compactions, subReq: s.subReq,
@@ -90,11 +90,13 @@ function build(rows) {
   return all;
 }
 
+// Lines come only from live OTel counters: a session with no reported rows never measured them, so it is null (not 0) and stays out of medians.
+const sv = (x, k) => (k === 'lines' && Array.isArray(x.grades) && !x.grades.includes('reported') ? null : x[k]);
 // Rank + percentile within the eligible pool (the "field" is your own sessions in the window).
 function rankPool(pool) {
   const out = {};
   for (const [k] of STATS) {
-    const vals = pool.map((s) => s[k]).filter((v) => v != null && isFinite(v)).sort((p, q) => p - q);
+    const vals = pool.map((s) => sv(s, k)).filter((v) => v != null && isFinite(v)).sort((p, q) => p - q);
     out[k] = vals;
   }
   return out;
@@ -123,8 +125,8 @@ export function sessionDetail(rows, id, { sinceMs = 0 } = {}) {
   const byY = [...pool].sort((p, q) => (q.yield ?? -1) - (p.yield ?? -1));
   const r = byY.findIndex((x) => x.id === id);
   const stats = STATS.map(([k, label, dir]) => {
-    const avg = mean(pool.map((x) => x[k]).filter((v) => v != null && isFinite(v)));
-    return { k, label, dir, avg, val: s[k], diff: s[k] != null && avg != null ? s[k] - avg : null, pct: pctOf(sorted[k], s[k]) };
+    const avg = mean(pool.map((x) => sv(x, k)).filter((v) => v != null && isFinite(v))), val = sv(s, k);
+    return { k, label, dir, avg, val, diff: val != null && avg != null ? val - avg : null, pct: pctOf(sorted[k], val) };
   });
   // Downsample the request curve to ≤120 cumulative points.
   let co = 0, ct = 0; const cum = s.curve.map(([ms, o, t]) => [ms, (co += o), (ct += t)]);

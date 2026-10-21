@@ -6,18 +6,23 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { summarize } from './score.mjs';
+import { summarize, otelSpan } from './score.mjs';
 import { decodeOtlp } from './protobuf.mjs';
 import { rotate, prune, reader } from './store.mjs';
 import { history as hist } from './history.mjs';
 import { sigrankRow } from './sigrank.mjs';
 import { sessionsList, sessionDetail } from './sessions.mjs';
 import { loadConfig } from './config.mjs';
+import { configureClassifier } from './classify.mjs';
 import { usage } from './usage.mjs';
 import { deltas, modelDetail, calc, card, submit } from './extras.mjs';
+import { gitStatus, gitView } from './git.mjs';
+import { artifactView, artifactScan } from './artifact.mjs';
 
 const cfg = loadConfig();
+configureClassifier(cfg.classify);
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const port = Number(process.argv[2] || cfg.port);
@@ -91,7 +96,7 @@ async function boardFetch(win) {
   const entries = (payload.data?.entries || []).map((e) => ({
     rank: e.rank, name: e.display_name, codename: e.codename, cls: e.class_tier, archetype: e.archetype,
     pillars: e.pillars, metrics: e.metrics, ratio: e.operating_ratio,
-    you: !!MY_CODENAME && e.codename === MY_CODENAME,
+    you: !!MY_CODENAME && e.codename === MY_CODENAME, observedAt: e.provenance?.observed_at || null, // day-level board snapshot date
   }));
   const data = { window: win, field: entries.length, top: entries[0] || null, you: entries.find((e) => e.you) || null, entries };
   boardCache.set(win, { at: Date.now(), data });
@@ -107,11 +112,25 @@ const allRows = reader(history, out);
 // Cache responses per URL; recompute only when the row count changed (entries also expire after 60s (windows) or 10 min).
 const memo = new Map();
 function cached(res, u, make) {
-  const rows = allRows(), days = Number(u.searchParams.get('days') || 0), k = u.pathname + u.search, hit = memo.get(k);
+  const local = isLocal(res.req);
+  const rows = allRows(), days = Number(u.searchParams.get('days') || 0), k = u.pathname + u.search + (local ? '' : '|public'), hit = memo.get(k);
   let r = hit && hit.n === rows.length && Date.now() - hit.at < (days ? 6e4 : 6e5) ? hit.r : null;
-  if (!r) { r = make(rows); if (memo.size > 200) memo.clear(); memo.set(k, { n: rows.length, at: Date.now(), r }); }
+  if (!r) { r = make(rows); if (!local && r[1] === J) r = [r[0], r[1], maskProjects(r[2])]; if (memo.size > 200) memo.clear(); memo.set(k, { n: rows.length, at: Date.now(), r }); }
   res.writeHead(r[0], r[1]).end(r[2]);
 }
+// Off this machine, project names (cwd folder = repo name) become stable per-process aliases: same project, same alias, no name.
+const PROJECT_KEY = crypto.randomBytes(16);
+const projectAlias = (p) => (p === 'unknown' ? p : 'project ' + crypto.createHmac('sha256', PROJECT_KEY).update(String(p)).digest('hex').slice(0, 4));
+const maskProjects = (body) => JSON.stringify(JSON.parse(body), (k, v) => (k === 'project' && typeof v === 'string' ? projectAlias(v) : v));
+// git-local shadow counts (src/git.mjs): answered from cache, never waits on git. Same window and OTel-paired span as the dashboard.
+let spanMemo = { at: 0 };
+const dataSpan = () => { if (Date.now() - spanMemo.at > 6e4) spanMemo = { at: Date.now(), ...otelSpan(allRows()) }; return spanMemo; };
+function gitWindows(days) {
+  const now = Date.now(), sp = dataSpan(), since = days ? now - days * 864e5 : (isFinite(sp.any) ? sp.any : now - 90 * 864e5);
+  const paired = isFinite(sp.otel) && sp.otel > since ? sp.otel : since;  // OTel counters exist only from here; the paired git span matches them
+  return { since, paired };
+}
+const WINDOWS = [0, 1, 7, 30, 90];  // the dashboard's windows: /api/git and /api/artifact start background work per window, so nothing else is accepted
 const J = { 'content-type': 'application/json' };
 const ok = (d, code = 200) => [code, J, JSON.stringify(d)];
 
@@ -147,8 +166,18 @@ http.createServer(async (req, res) => {
       if (u.pathname === '/api/sigrank') {
         if (days !== 1) return json(res, 200, sigrankRow(days));
         const t = summarize(allRows(), { sinceMs, windowDays: 1 }).total;
-        return json(res, 200, { window: '24h', row: t.board.logged, t: { output: t.output, cacheRead: t.cacheRead, cacheWrite: t.cacheWrite, requests: t.requests, cost: t.cost } });
+        return json(res, 200, { window: '24h', grade: 'computed', inputs: t.grade, inputGrades: t.grades, row: t.board.logged, t: { output: t.output, cacheRead: t.cacheRead, cacheWrite: t.cacheWrite, requests: t.requests, cost: t.cost } });
       }
+      if (u.pathname === '/api/git') {
+        if (!WINDOWS.includes(days)) return json(res, 400, { error: 'days must be one of 0, 1, 7, 30, 90' });
+        const w = gitWindows(days), local = isLocal(req), whole = gitStatus(cfg, w.since, `w${days}`), same = w.paired === w.since;
+        return json(res, 200, { grade: 'git-local', rules: 'docs/git-counting-rules.md', days, window: gitView(whole, { local }),
+          paired: { same, ...(same ? gitView(whole, { local }) : gitView(gitStatus(cfg, w.paired, `p${days}`), { local })) } });
+      }
+      // Tier-2 derived artifact measurement (src/artifact.mjs): class x day aggregates from transcript edit payloads. Answers from cache, never waits on the scan.
+      if (u.pathname === '/api/artifact') {
+        if (!WINDOWS.includes(days)) return json(res, 400, { error: 'days must be one of 0, 1, 7, 30, 90' });
+        const w = gitWindows(days); return json(res, 200, { days, ...artifactView(allRows(), { since: w.since, paired: w.paired }) }); }
       // Claude Code's own /usage panel numbers, reproduced from transcripts.
       if (u.pathname === '/api/usage') return json(res, 200, usage(days));
       if (u.pathname === '/api/summary') return cached(res, u, (rows) => ok({ ...summarize(rows, { sinceMs, windowDays: days }), ...hist(rows) }));
@@ -158,7 +187,7 @@ http.createServer(async (req, res) => {
         if (wd === undefined) return ok({ error: 'window must be 7d|30d|90d|all' }, 400);
         const since = wd ? Date.now() - wd * 864e5 : null, S = summarize(rows, { sinceMs: since || 0, windowDays: wd });
         const pick = (t) => ({ input: t.input, output: t.output, cacheRead: t.cacheRead, cacheWrite: t.cacheWrite, requests: t.requests });
-        return ok({ source: 'otel-cc', window, sinceMs: since, total: pick(S.total), models: Object.fromEntries(Object.entries(S.models).map(([k, v]) => [k, pick(v)])) });
+        return ok({ source: 'otel-cc', window, sinceMs: since, grade: S.total.grade, grades: S.total.grades, total: pick(S.total), models: Object.fromEntries(Object.entries(S.models).map(([k, v]) => [k, pick(v)])) });
       });
       if (u.pathname === '/api/config') return json(res, 200, { port, dataDir: cfg.dataDir, out, codename: cfg.codename, cascadePath: cfg.cascadePath,
         retentionDays: cfg.retentionDays, allowSubmit: cfg.allowSubmit });
@@ -167,6 +196,11 @@ http.createServer(async (req, res) => {
       const win = { 1: '7d', 7: '7d', 30: '30d', 90: '90d', 0: 'all' }[u.searchParams.get('days') || '7'] || '7d';
       try { const d = await board(win); res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(d)); }
       catch (e) { console.error(`[board] ${e.message}`); res.writeHead(502).end('{}'); }
+      return;
+    }
+    if (['/docs/git-counting-rules.md', '/docs/artifact-measurement.md', '/docs/classification.md'].includes(u.pathname)) {
+      try { res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' }).end(fs.readFileSync(path.join(here, '..', 'docs', path.basename(u.pathname)))); }
+      catch { res.writeHead(404).end(); }
       return;
     }
     if (u.pathname === '/' || u.pathname === '/dashboard') {
@@ -201,4 +235,7 @@ http.createServer(async (req, res) => {
       res.writeHead(400).end();
     }
   });
-}).listen(port, '127.0.0.1', () => console.log(`tokenpull-otel receiver on http://127.0.0.1:${port} (dashboard at /) -> ${out}`));
+}).listen(port, '127.0.0.1', () => {
+  console.log(`tokenpull-otel receiver on http://127.0.0.1:${port} (dashboard at /) -> ${out}`);
+  setTimeout(() => { try { gitStatus(cfg, gitWindows(7).since, 'w7'); artifactScan(); } catch {} }, 2000).unref();  // warm the 7d git count in the background
+});

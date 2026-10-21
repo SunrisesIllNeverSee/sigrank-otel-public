@@ -1,6 +1,6 @@
 // All-time history views (ignore the window selector): BlitzStars-style daily sessions log + Recent Milestones.
 // A "day" ends at 05:00 the next morning, so late-night work counts toward the evening it started.
-import { cascade, typedTokens, rowSource, mixSource, isHarness } from './score.mjs';
+import { cascade, typedTokens, rowSource, mixSource, isHarness, rowGrade, gradeFields } from './score.mjs';
 
 const DAY_END_HOUR = 5;
 const msOf = (r) => Number(BigInt(r.time || r.end || 0) / 1000000n) || Date.parse(r.attrs?.['event.timestamp'] || '') || 0;
@@ -9,7 +9,7 @@ const dayKey = (ms) => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 const blank = () => ({ requests: 0, prompts: 0, typed: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0,
-  added: 0, removed: 0, tools: 0, commits: 0, models: {}, sessions: new Set(), src: new Set(), first: 0, last: 0 });
+  added: 0, removed: 0, tools: 0, commits: 0, models: {}, sessions: new Set(), src: new Set(), gr: new Set(), first: 0, last: 0 });
 const tokens = (t) => t.input + t.output + t.cacheRead + t.cacheWrite;
 const score = (t) => (t.input > 0 || t.output > 0 ? cascade(t.input, t.output, t.cacheWrite, t.cacheRead) : null);
 
@@ -30,7 +30,7 @@ export function history(rows) {
   for (const [ms, r] of evs) {
     const a = r.attrs || {}; const k = dayKey(ms);
     const d = days.get(k) || days.set(k, blank()).get(k);
-    d.first ||= ms; d.last = ms; d.src.add(rowSource(r)); if (a['session.id']) d.sessions.add(a['session.id']);
+    d.first ||= ms; d.last = ms; d.src.add(rowSource(r)); d.gr.add(rowGrade(r)); if (a['session.id']) d.sessions.add(a['session.id']);
     if (r.name === 'claude_code.api_request' && !isHarness(a.query_source)) {
       const x = { i: +a.input_tokens || 0, o: +a.output_tokens || 0, cr: +a.cache_read_tokens || 0, cw: +a.cache_creation_tokens || 0 };
       const n = x.i + x.o + x.cr + x.cw; const m = (a.model || 'unknown').replace('claude-', '');
@@ -64,7 +64,7 @@ export function history(rows) {
   for (const [k, d] of [...days.entries()].sort()) {
     if (!d.requests && !d.prompts) continue;
     const s = score(d); const lines = d.added + d.removed; const tk = tokens(d);
-    const row = { day: k, source: mixSource(d.src), ms: d.last, requests: d.requests, prompts: d.prompts, typed: d.typed, input: d.input, output: d.output,
+    const row = { day: k, source: mixSource(d.src), ...gradeFields(d.gr), ms: d.last, requests: d.requests, prompts: d.prompts, typed: d.typed, input: d.input, output: d.output,
       cacheRead: d.cacheRead, cacheWrite: d.cacheWrite, total: tk, cost: d.cost, added: d.added, removed: d.removed, tools: d.tools,
       commits: d.commits, sessions: d.sessions.size, activeMin: (d.last - d.first) / 60000,
       models: Object.entries(d.models).sort((p, q) => q[1] - p[1]).map(([m, n]) => ({ m, n })),
@@ -75,8 +75,8 @@ export function history(rows) {
     pb('tokens', tk, 'Best day · Σ tokens', big); pb('output', d.output, 'Best day · output', big);
     pb('requests', d.requests, 'Best day · requests', big); pb('lines', lines, 'Best day · lines changed', big);
     if (s && d.prompts >= 5) pb('y', s.yield, 'Best day · Υ', (v) => (v >= 1e4 ? `${(v / 1e3).toFixed(1)}K` : v.toFixed(1)));
-    // Running class (typed input, all-time to date).
-    for (const f of ['typed', 'output', 'cacheRead', 'cacheWrite']) cum[f] += d[f];
+    // Running class (all-time to date; score() reads logged input, so it must accumulate).
+    for (const f of ['typed', 'input', 'output', 'cacheRead', 'cacheWrite']) cum[f] += d[f];
     const c = score(cum)?.class;
     if (c && cls && c !== cls) push(d.last, 'class', `Class → ${c}`, `from ${cls}`);
     if (c) cls = c;

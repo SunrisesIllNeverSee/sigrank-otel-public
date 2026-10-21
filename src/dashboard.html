@@ -91,6 +91,11 @@
   .mark.top { color: var(--orange); top: 28px; }
   .pin { position: absolute; top: 11px; width: 2px; height: 15px; }
   .pin.you { background: var(--lime); box-shadow: 0 0 6px var(--lime); } .pin.top { background: var(--orange); }
+  .fun { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 3px; margin: 3px 0; }
+  .fun > div { border: 1px solid var(--line); border-radius: 3px; padding: 2px 4px; min-width: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+  .fun > div + div { border-left-color: #3d5a10; }
+  .fun .fl { color: var(--muted); font-size: 8px; text-transform: uppercase; letter-spacing: 0.08em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fun .fv { color: var(--hi); font-size: 12px; } .fun .fs { color: var(--muted); font-size: 9px; } .fun .fg { color: var(--violet); font-size: 9px; }
   .shipbig { display: flex; gap: 14px; align-items: baseline; }
   .shipbig b { font-family: "Silkscreen", monospace; font-weight: 400; font-size: 20px; }
   .bars { height: 40px; display: flex; align-items: flex-end; gap: 2px; border-bottom: 1px solid var(--line); flex: none; }
@@ -197,8 +202,23 @@
   .trn { color: var(--orange); border: 1px dashed #5a3a14; padding: 0 4px; font-size: 9px; font-style: normal; margin-left: 6px; white-space: nowrap; cursor: help; text-transform: none; letter-spacing: 0; font-weight: 400; }
   .trn.mix { color: #d9a45c; }
   .trn:focus-visible { outline: 1px solid var(--lime); outline-offset: 1px; }
+  /* Provenance grade tags (.pg) and pipeline chips (.pg-pipe): one visual language, hover = definition */
+  .pg { display: inline-block; border: 1px solid currentColor; padding: 0 4px; font-size: 9px; font-style: normal; margin-left: 6px; white-space: nowrap; cursor: help; text-transform: none; letter-spacing: 0; font-weight: 400; line-height: 1.35; vertical-align: middle; }
+  a.pg { text-decoration: none; }
+  .pg:focus-visible { outline: 1px solid var(--lime); outline-offset: 1px; }
+  .pg-reported { color: var(--lime); } .pg-computed { color: var(--cyan); } .pg-logged { color: var(--orange); } .pg-estimated { color: var(--yellow); border-style: dashed; }
+  .pg-native-log { color: var(--blue); } .pg-git-local { color: var(--violet); } .pg-derived { color: var(--pink); }
+  .pg-mixed { color: #d9a45c; border-style: dashed; } .pg-unknown { color: var(--red); border-style: dotted; }
+  .pg-pipe { color: var(--muted); border-color: var(--line); }
+  .ph .pg { margin-left: 6px; letter-spacing: 0; }
+  .pgr { margin-top: 2px; line-height: 1; white-space: nowrap; overflow: hidden; } .pgr .pg { margin-left: 0; }
+  .pbar { grid-column: 1 / -1; color: var(--muted); font-size: 10px; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
+  .pbar .pg { margin-left: 0; }
   .dl { display: inline-block; width: 14px; border-top: 2px dashed var(--orange); vertical-align: middle; margin-right: 4px; }
   .seg.act button { color: var(--lime); }
+  .seg.act button.overdue { color: var(--orange); box-shadow: inset 0 0 0 1px var(--orange); }
+  tr.exp td { color: var(--muted); font-size: 10px; padding: 2px 8px 4px; white-space: normal; }
+  tr.exp .od { color: var(--orange); font-weight: 600; }
   .seg.act button:hover { background: #1b2a0e; }
   .btn { background: var(--panel2); color: var(--lime); border: 1px solid #3d5a10; padding: 3px 9px; font: 10px "Geist Mono", monospace; cursor: pointer; text-transform: uppercase; letter-spacing: 0.06em; }
   .btn:hover { background: #1b2a0e; } .btn:focus-visible { outline: 1px solid var(--lime); outline-offset: 1px; }
@@ -239,7 +259,7 @@
   </header>
 
   <section id="strip"></section>
-  <section class="panel" id="board"><div class="note" id="bnote">Your totals next to the public SignalAF board, then a breakdown by source and model. YOU = your SigRank numbers (24h from reported OTel tokens; 7d+ computed by sigrank). Every number uses reported tokens — nothing estimated. Click a model row for its detail.</div><table id="btable"><thead id="bh"></thead><tbody id="bb"></tbody></table><div id="alt"></div></section>
+  <section class="panel" id="board"><div class="note" id="bnote">Your totals next to the public SignalAF board, then a breakdown by source and model. YOU = your live numbers for the selected window (24h computed from live OTel tokens; 7d+ computed by sigrank from logs). The board rows are your last submitted snapshot, not live. Click a model row for its detail. Grade tags: <i id="bgr"></i></div><table id="btable"><thead id="bh"></thead><tbody id="bb"></tbody></table><div id="alt"></div></section>
 
   <section class="panel" id="readout">
     <div class="ph">Operator readout <span id="rw"></span></div>
@@ -251,8 +271,8 @@
   </section>
 
   <section class="panel" id="ship">
-    <div class="ph">Shipped · pace · cache</div>
-    <div class="note">What you shipped, how fast it went, and how much context was reused from cache.</div>
+    <div class="ph">Artifact lane · pace · cache <span id="shp"></span></div>
+    <div class="note">Two lanes. Artifact: what Claude proposed, wrote and committed, in tiers (reported counters, derived file text, derived commands and tool calls, a residual by difference). Pace and cache: how fast tokens moved and how much context was reused. Git-local rows are counted from your local git history and sit beside the reported ones, as a shadow.</div>
     <div id="sh"></div>
   </section>
 
@@ -276,7 +296,11 @@
 const fmt = (n, d = 0) => (n == null || !isFinite(n)) ? '—' : Number(n).toLocaleString('en-US', { maximumFractionDigits: d, minimumFractionDigits: d });
 const big = (n) => n == null || !isFinite(n) ? '—' : n >= 1e9 ? fmt(n / 1e9, 1) + 'B' : n >= 1e6 ? fmt(n / 1e6, 1) + 'M' : n >= 1e3 ? fmt(n / 1e3, 1) + 'K' : fmt(n);
 const ups = (y) => y == null || !isFinite(y) ? '—' : y >= 1e6 ? fmt(y / 1e6, 2) + 'M' : y >= 1e4 ? fmt(y / 1e3, 1) + 'K' : fmt(y, y < 10 ? 2 : 1);
-const pct = (x, d = 1) => x == null || !isFinite(x) ? '—' : fmt(x * 100, d) + '%';
+// Never round a fraction up into a claim: below 100% stays below 100% (318/319 reads 99.7%, not 100%).
+const pct = (x, d = 1) => { if (x == null || !isFinite(x)) return '—'; const p = x * 100; if (p > 0 && Number(p.toFixed(d)) === 0) return `<${10 ** -d}%`;  // never print a small nonzero share as 0
+  return (p < 100 && Number(p.toFixed(d)) >= 100 ? fmt(Math.floor(p * 10 ** d) / 10 ** d, d) : fmt(p, d)) + '%'; };
+// Ratio to one decimal; a small nonzero value reads "<0.1", never "0.0".
+const r1 = (v, d = 1) => { if (v == null || !isFinite(v)) return '—'; const t = Number(v.toFixed(d)); return v !== 0 && t === 0 ? `${v > 0 ? '<' : '>−'}${10 ** -d}` : fmt(v, d); };
 const dur = (s) => s >= 3600 ? `${fmt(s / 3600, 1)}h` : s >= 60 ? `${fmt(s / 60, 0)}m` : `${fmt(s, 0)}s`;
 const kb = (b) => b >= 1048576 ? fmt(b / 1048576, 1) + 'MB' : b >= 1024 ? fmt(b / 1024, 0) + 'KB' : fmt(b) + 'B';
 const tname = (n = '') => n.startsWith('mcp__') ? n.split('__').pop() + ' ·mcp' : n;
@@ -284,7 +308,7 @@ const clock = (ms) => new Date(ms).toLocaleTimeString([], { hour: 'numeric', min
 const API = location.pathname.replace(/\/index\.html$/, '').replace(/\/+$/, '');
 const store = { get: (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
 let days = Number(store.get('tp-days', 7)), mode = store.get('tp-mode', 'metrics'), ftab = store.get('tp-ftab', 'feed');
-let S = null, B = null, L = null, R = null; const seen = new Set();
+let S = null, B = null, L = null, R = null, G = null, A = null; const seen = new Set();
 let view = store.get('tp-view', 'board'), sproj = store.get('tp-sproj', ''), ssort = store.get('tp-ssort', 'last'), sall = store.get('tp-sall', '0') === '1';
 const openDays = new Set(); let openId = null, openMdl = null, D = null;
 const VIEWS = ['board', 'sessions', 'daily', 'miles'];
@@ -297,10 +321,54 @@ function syncHash() {
 }
 { const h0 = parseHash(); if (VIEWS.includes(h0.view)) view = h0.view; }
 // Transcript marker: history imported from Claude Code transcripts, before live telemetry.
-const TRN_TIP = 'Recorded before live telemetry was switched on, so it comes from transcripts. Subagent output is under-counted in transcripts.';
+const TRN_TIP = 'Recorded before live telemetry was switched on, so it comes from transcripts. Subagent output is under-counted in transcripts. Lines and commits are not recorded there.';
 const TRN_MIX = 'Part of this was recorded before live telemetry (from transcripts). Subagent output is under-counted in transcripts.';
+// Lines and commits come only from live OTel counters; a row with no reported data never measured them, so "0" would be a false claim.
+const noCnt = (o) => Array.isArray(o?.grades) ? !o.grades.includes('reported') : o?.grade === 'logged';
+const NOCNT_TIP = 'Lines and commits are not recorded before live telemetry: this row comes from logs, which do not carry them.';
+const lines = (o, f = big) => noCnt(o) ? `<span class="c-m" data-tip="${NOCNT_TIP}">—</span>` : `<span class="c-y">+${f(o.added)}</span>/<span class="c-red">${f(o.removed)}</span>`;
+const rowTag = (o) => (o?.grade === 'unknown' || o?.grade === 'estimated' ? pgOf(o) : '');  // reported/logged/mixed rows are covered by trn() and the panel chip
 const trn = (src, long) => src === 'transcript' ? `<span class="trn" tabindex="0" data-tip="${TRN_TIP}">≈ ${long ? 'from ' : ''}transcripts</span>`
   : src === 'mixed' ? `<span class="trn mix" tabindex="0" data-tip="${TRN_MIX}">≈ ${long ? 'partly from' : 'part'} transcripts</span>` : '';
+
+// Provenance grammar. Grades are decided server-side (grade/grades fields); the view only renders them and never upgrades one.
+const GRADE_DEF = {
+  reported: 'Provider-attested: counted by Claude Code and sent as OpenTelemetry to this receiver.',
+  computed: 'Deterministic local computation from reported or logged inputs (sigrank scores). Same inputs, same number.',
+  logged: 'Local first-party logs: rebuilt from Claude Code transcripts on this computer (the backfill), not from live telemetry.',
+  estimated: 'Derived by an estimation rule rather than counted. The rule is named in the hover.',
+  'native-log': 'Local first-party logs with natively separated token pillars. Reserved for Devin and Codex; nothing uses it yet.',
+  'git-local': 'Counted from local git history (git log --numstat) on this computer, anchored to commit time. Reproducible by anyone with the same clones, identity list and the counting rules. Click the tag for the rules.',
+  derived: 'Measured from structured transcript tool payloads (the text Claude generated into files), not counted by Claude Code. Chars and lines are exact counts of that text; tokens are chars times a tokens-per-char rate fit from your own data. Method and constants are in the rules. Click the tag for them.',
+  unknown: 'The data does not say where this number came from, so no grade is claimed.',
+};
+const TYPED_RULE = 'typed tokens ≈ 0.454 × chars − 188 for prompts over 500 chars, else chars ÷ 3.6 (fit from transcripts)';
+const RULES_URL = window.__SNAPSHOT ? 'https://github.com/SunrisesIllNeverSee/sigrank-otel-public/blob/main/docs/git-counting-rules.md' : API + '/docs/git-counting-rules.md';
+const ART_URL = window.__SNAPSHOT ? 'https://github.com/SunrisesIllNeverSee/sigrank-otel-public/blob/main/docs/artifact-measurement.md' : API + '/docs/artifact-measurement.md';
+function pg(grade, grades, note = '', label = null) {  // grade/grades come from the API; note = extra hover text
+  const g = grade === 'mixed' || GRADE_DEF[grade] ? grade : 'unknown', gs = (grades || []).filter((x) => GRADE_DEF[x]);
+  const def = g === 'mixed' ? `Mixed: this combines ${gs.join(' + ') || 'several grades'}. ` + gs.map((x) => `${x}: ${GRADE_DEF[x]}`).join(' ') : GRADE_DEF[g];
+  if (g === 'git-local') return `<a class="pg pg-git-local" href="${RULES_URL}" target="_blank" rel="noopener" data-tip="${escA(`${def}${note ? ' ' + note : ''}`)}">${label ?? g}</a>`;
+  if (g === 'derived') return `<a class="pg pg-derived" href="${ART_URL}" target="_blank" rel="noopener" data-tip="${escA(`${def}${note ? ' ' + note : ''}`)}">${label ?? g}</a>`;
+  return `<span class="pg pg-${g}" tabindex="0" data-tip="${escA(`${def}${note ? ' ' + note : ''}`)}">${label ?? (g === 'mixed' && gs.length ? 'mixed · ' + gs.join('+') : g)}</span>`;
+}
+const pgOf = (o, note, label) => pg(o?.grade, o?.grades, note, label);  // o = any API object carrying grade/grades
+// Pipeline chip: which of the two pipelines (live OTel stream vs computed from logs) fed a number.
+const PIPE = { reported: 'live · otel', logged: 'computed · logs', mixed: 'otel + logs', estimated: 'estimated', unknown: 'source unknown' };
+const PIPE_TIP = { 'live · otel': 'Live pipeline: Claude Code OpenTelemetry received by this receiver, as it happens.',
+  'computed · logs': 'Historical pipeline: computed from local logs (Claude Code transcripts), not from the live stream.',
+  'otel + logs': 'Both pipelines: the live OTel stream where it exists and logs for earlier history.' };
+const pipe = (label, tip = '') => `<span class="pg pg-pipe" tabindex="0" data-tip="${escA((PIPE_TIP[label] || '') + (tip ? ' ' + tip : ''))}">${label}</span>`;
+const pipeOf = (o, tip) => pipe(PIPE[o?.grade] || PIPE.unknown, tip);
+// Window coverage, computed server-side from the real OTel start. "rest from logs" only if logs actually fed the window.
+function covText() {
+  const c = S?.coverage; if (!c || !c.spanDays) return '';
+  const w = winLabel();
+  if (c.otelStartMs == null) return `${w} · no OTel in this window${S.total.grades.includes('logged') ? ', all from logs' : ''}`;
+  if (c.full) return `${w} · OTel covers the whole window`;
+  return `${w} · OTel coverage ${c.otelDays ? `${c.otelDays} of ${c.spanDays} days` : `less than 1 of ${c.spanDays} days`}, ${S.total.grades.includes('logged') ? 'rest from logs' : 'rest not recorded'}`;
+}
+const covTip = () => S?.coverage?.otelStartMs ? `Live OTel began ${new Date(S.coverage.otelStartMs).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })} (first live event in the data). Whole days only.` : '';
 
 // Plain-language glossary → hover/focus tooltips (custom element, not title=).
 const GL = {
@@ -311,10 +379,12 @@ const GL = {
   '10×Dev': 'Leverage on a log scale (log10 of cached context ÷ input). Each +1 means ten times more context reuse. Easier to compare than raw Leverage.',
   'Scale V': 'Overall volume on a log scale: log10 of all your tokens added together. Each +1 means ten times more tokens in total.',
   'C:I:O': 'Cache : Input : Output, with Input set to 1. 800:1:3 means each input token pulled in 800 cached tokens and got 3 output tokens back. Υ is the first number times the last.',
+  'Class scopes': 'Class is a volume ladder on the window\'s total tokens, so it depends on the window. Your 7d class, your lifetime milestone class and your last submitted board snapshot are different scopes and can legitimately differ.',
+  'Board row': 'The last snapshot you submitted to the public board, for the board\'s window. Not live. The board publishes a snapshot date, not a submit time.',
   'Class': 'A named tier that places you on the leaderboard scale. Higher tiers mean more usage; it says nothing about how good the work is.',
-  'Construction': 'Cache writes ÷ cache reads: how much new context you store versus how much you reuse. Low = mostly reusing; high = constantly building new context.',
+  'Construction': 'Cache write ÷ cache read: context stored vs reused. A token and cache behavior stat, not the share of output that became code. Low = mostly reusing; high = constantly building new context.',
   'Cache hit rate': 'Of everything fed to the model, the share that came from cache instead of being new. Higher = more reuse, usually cheaper and faster.',
-  'Typed input': 'Tokens in what you actually typed (estimated from prompt length). Counted on this computer only; never sent anywhere.',
+  'Typed input': 'Tokens in what you actually typed, estimated from prompt length (the prompt text itself is never stored). Counted on this computer only; never sent anywhere.',
   'Logged input': 'Input tokens the API counted for each request. Usually small, because most of a request is cached context, which is counted separately.',
   '∑/Day': 'Total tokens (input, output and cache) divided by the days in the chosen window: your average daily volume.',
   '$/1M': 'Average cost per million tokens (cost ÷ total tokens × 1,000,000). Lower = cheaper per token, often thanks to cache reuse. Live data only.',
@@ -331,14 +401,29 @@ const GL = {
   'Rank': 'Position among your own eligible sessions, ordered by Υ.',
   'Session': 'One run of Claude Code, from start to last activity.',
   'Day': 'A day runs 05:00 to 05:00, so late-night work counts toward the day you started.',
-  '+/−': 'Lines of code added (green) and removed (red).',
+  '+/−': 'Lines of code added (green) and removed (red). Counted by Claude Code\'s live telemetry only: a dash means the row comes from logs, which carry no line counts.',
   'Tools': 'Tool calls Claude made: file reads, edits, shell commands and so on.',
   'Dur': 'How long the session lasted, first to last event.',
   'Models': 'Which Claude models answered.',
   'Sess': 'Number of sessions that day.',
-  'Commits · PRs': 'Git commits and pull requests made through Claude Code.',
-  'Edits accepted': 'Share of Claude\'s proposed file edits that you accepted instead of rejecting.',
-  'Lines / 1K output': 'Lines of code changed per 1,000 output tokens. Higher = more of what the model writes ends up in code.',
+  'Commits · PRs': 'Commits and pull requests counted by Claude Code\'s own counters (reported). Not read from git, so anything done outside Claude Code is missing. The git line beneath is the git-local count of your commits over the same span.',
+  'Edits accepted': 'Edits you accepted out of all the edits Claude proposed, with the raw count (accepted/proposed). A fraction below 100% never rounds up to 100%.',
+  'Lines / 1K output': 'Lines added plus removed (Claude Code\'s counter) per 1,000 reported output tokens. A volume ratio, not a conversion rate: most output is prose and tool calls, not code.',
+  'Tier 1 · reported': 'What Claude Code counted itself and sent as telemetry: edits proposed and accepted (by language), lines written, commits and pull requests. Git-local rows are counted from your local git history, as a shadow beside them (they replace nothing).',
+  'Tier 2 · derived': 'Output tokens that became file text. Read from the edit payloads in your transcripts: Edit new_string, Write content, MultiEdit new_string, NotebookEdit new_source (never the text being replaced). Edits you rejected or that failed are left out. Grouped by path role first (agent and coordination scaffolding, ops and deploy files, shell scripts), then by file type, into code, infra, docs, config and other.',
+  'Tier 2b · operations': 'Work done by commands and tool calls, read from the transcripts: the text of each Bash command, each MCP call\'s input, and each subagent prompt or workflow script, sorted into a category (deploy and hosting, service config, data, package, version control, build/test/run, file operations, orchestration, other). Inspection (ls, cat, grep, git status and MCP reads) is shown apart and labeled as overhead, not artifact. Calls that failed or that you rejected are left out. A label that splits a count, never a ranking of one category over another.',
+  'Tier 3 · residual': 'Reported output tokens minus the tier-2 file text minus the tier-2b operations (inspection included), by difference. It holds planning, narration, retries, thinking, other tool arguments and call wrappers, and it is not measured: it is whatever is left over, so it is never a thinking count.',
+  'Code share of output': 'Derived code tokens divided by reported output tokens, over the span where telemetry exists. The numerator is derived (generated code text, tokens estimated from chars). The denominator is reported. A volume share, not a quality or productivity measure.',
+  'Join coverage': 'How many edits found their OTel tool decision by tool_use_id, of all edits read from transcripts in the span. Rejected edits are dropped, as are edits whose tool call failed. Edits with no decision are kept (the transcript says they ran) and shown as not joined.',
+  'chars / token': 'Characters of generated text per output token, fit from your own requests: reported output tokens regressed on generated characters, one point per API request that was almost all file text.',
+  'Pace': 'How fast tokens moved: active time, cost per active hour, tokens per minute, time to first token.',
+  'Edit funnel': 'Proposed (edit decisions) → accepted → written (lines) → committed (commits and PRs). Each step has its own unit, so the steps are counts, not percentages of each other. Committed shows Claude Code\'s counter, with the git-local commit count beneath it.',
+  'Edits by language': 'Accepted and rejected edits grouped by the language label Claude Code reports for each edit. Counts only.',
+  'Committed (git)': 'Lines and commits counted from your local git history: your commits, in the repos your sessions worked in, anchored to commit time. Shown beside the reported counters, not instead of them. Lines are written and committed at different times, so short windows can disagree.',
+  'Committed net by class': 'Net lines committed (git-local) split by what the path is for: code, infra (agent scaffolding, ops and deploy files, shell scripts), docs, config, other. Files outside any git repo, such as ~/.claude and ~/Library/LaunchAgents, are not in git, so they show up only in the derived tier above. A label, never a ranking.',
+  'Committed net lines / 1K output': 'Net lines committed (git-local) per 1,000 reported output tokens, over the span where telemetry counters exist. A volume ratio and an upper bound, not a conversion rate: the numerator counts all your commits in those repos, including hand-written ones and other tools\', not only lines Claude wrote.',
+  'Claude co-authored': 'Your commits that carry a Co-authored-by trailer naming Claude (Claude Code adds one to the commits it makes), counted with the same exclusions. Conservative: a commit whose trailer was removed, or that you made by hand from Claude\'s edits, is not in it.',
+  'Claude co-authored net / 1K output': 'Net lines in Claude co-authored commits per 1,000 reported output tokens: Claude\'s committed lines over Claude\'s output, the like-for-like ratio. The all-commits ratio above is the generous bound; this is the conservative one.',
   'Active time': 'Time Claude spent working, with the part spent waiting on you in brackets.',
   'Cost / active hr': 'API cost divided by active hours.',
   'TTFT · request (med)': 'Median wait before the first word arrives, then the median full request time.',
@@ -366,7 +451,8 @@ alias('10×Dev', '✧ 10×Dev'); alias('Scale V', 'Ⅴ Scale V'); alias('C:I:O',
 alias('∑ Total', '∑ Total tokens', '∑'); alias('Typed input', 'Typed'); alias('Output', 'Out'); alias('Req', 'Requests'); alias('Cost', 'Cost · live');
 alias('Cache R', 'Cache read', 'CR'); alias('Cache W', 'Cache write', 'CW'); alias('Prompts', 'Prm'); alias('∑/Day', '∑ / Day');
 const escA = (t) => t.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
-const g = (label, key = label) => GL[key] ? `<span class="gl" tabindex="0" data-tip="${escA(GL[key])}">${label}</span>` : label;
+const EST = new Set(['Typed input', 'Typed', 'Typed input / day', 'Typed · logged I']);  // typed input is always an estimate
+const g = (label, key = label) => GL[key] ? `<span class="gl" tabindex="0" data-tip="${escA(GL[key])}">${label}</span>${EST.has(key) ? pg('estimated', null, TYPED_RULE + '.', 'est.') : ''}` : label;
 let tipEl = null, mx = 0, my = 0;
 const tipBox = () => document.getElementById('tip');
 function showTip(el) {
@@ -390,10 +476,10 @@ function local(b, t) {
     scaleV: b.scaleV, y: b.yield, snr: b.snr, vel: b.velocity, lev: b.leverage, dev: b.dev10x, cio: b.cio, req: t.requests, cost: t.cost,
     per1M: b.costPer1M, hit: b.hitRate, con: b.construction };
 }
-function fromBoard(e, wd) {
+function fromBoard(e, wd) {  // wd = the board window's own days (0 = all: no per-day)
   if (!e) return null;
   const p = e.pillars, m = e.metrics, total = p.input + p.output + p.cache_write + p.cache_read;
-  return { cls: e.cls, input: p.input, output: p.output, cw: p.cache_write, cr: p.cache_read, total, perDay: total / wd, scaleV: m.scale_v,
+  return { cls: e.cls, input: p.input, output: p.output, cw: p.cache_write, cr: p.cache_read, total, perDay: wd ? total / wd : null, scaleV: m.scale_v,
     y: m.yield, snr: m.snr, vel: m.velocity, lev: m.leverage, dev: m.dev10x, cio: `${fmt(m.leverage, 0)}:1:${fmt(m.velocity, 2)}`,
     req: null, cost: null, per1M: null, hit: p.cache_read / (p.cache_read + p.cache_write + p.input), con: m.construction };
 }
@@ -414,43 +500,72 @@ function cells(r) {
 }
 const tr = (label, sub, r, cls = '', attr = '') => `<tr class="${cls}"${attr}><td class="who">${label}<i>${sub}</i></td>${cells(r)}</tr>`;
 
+// Board window vs the YOU row's window: only same-window comparisons are meaningful.
+const BWD = { '7d': 7, '30d': 30, '90d': 90, all: 0 };
+const sameWin = () => !!(B && R?.row && B.window === R.window);
+const boardDate = (e) => e?.observedAt ? e.observedAt.slice(0, 10) : null;
+function overdue() {  // live vs submitted: >25% apart on Υ, or a different class. Same window only.
+  if (!sameWin() || !B.you) return null;
+  const sy = B.you.metrics.yield, ly = R.row.yield, why = [];
+  if (sy > 0 && Math.abs(ly - sy) / sy > 0.25) why.push(`live Υ ${ups(ly)} vs submitted ${ups(sy)}`);
+  if (R.row.class !== B.you.cls) why.push(`class ${R.row.class} vs submitted ${B.you.cls}`);
+  return why.length ? why.join('; ') : null;
+}
+function boardExplain() {
+  const win = days === 1 ? '24h' : (R?.window || '—');
+  let bw = B.window + (days === 1 ? ' (the board has no 24h window; nothing below is a 24h comparison)' : ''), when = B.you ? (boardDate(B.you) ? `snapshot dated ${boardDate(B.you)}` : 'snapshot date unknown') : `never submitted (no ${B.window} board row)`;
+  return `${g('Board row')} = last submitted snapshot, ${bw}, ${when}. YOU row = live-computed for ${win}. ${g('Class scopes')} differ by window.`;
+}
+// Public board rows are published snapshots; their provenance field is a date only, so no measurement grade is claimed for them.
+const BOARD_TAG = pg('unknown', null, 'Public board snapshot: the board publishes a snapshot date, not how the numbers were measured.');
 function renderBoard() {
   const s = S, t = s.total, wd = s.windowDays;
   document.getElementById('bh').innerHTML = `<tr><th class="c-m">${g('◉ Source')}</th>${COLS[mode].map(([h, c]) => `<th class="${c}">${g(h)}</th>`).join('')}</tr>`;
-  let h = tr('YOU · SigRank', `${days === 1 ? 'reported OTel tokens · 24h' : `computed by sigrank (tokenpull + token-cascade) · ${R?.window || '—'}`}`, R?.row ? local(R.row, R.t) : null, 'primary');
+  const youIn = days === 1 ? { grade: R?.inputs, grades: R?.inputGrades } : { grade: 'logged', grades: ['logged'] };
+  const youTag = pgOf({ grade: 'computed' }, `Inputs: ${days === 1 ? 'tokens counted from live OTel in the last 24h' : 'local logs, via sigrank (tokenpull + token-cascade)'}.`)
+    + (days === 1 ? pipeOf(youIn, 'Scores computed from these counts.') : pipe('computed · logs'));
+  let h = tr('YOU · SigRank', `${days === 1 ? `computed from ${esc(R?.inputs || 'unknown')} OTel tokens · 24h` : `computed by sigrank (tokenpull + token-cascade) · ${R?.window || '—'}`}${youTag}`, R?.row ? local(R.row, R.t) : null, 'primary');
   if (B?.top) {
-    h += `<tr class="sep"><td colspan="12">SignalAF board · ${B.window} · field ${B.field}</td></tr>`;
-    h += tr(`#${B.top.rank} ${B.top.name}`, 'board leader', fromBoard(B.top, wd), 'ext');
-    if (B.you && B.you !== B.top) h += tr(`#${B.you.rank} ${B.you.name}`, 'you on the board', fromBoard(B.you, wd), 'me');
+    const bwd = BWD[B.window], od = overdue();
+    h += `<tr class="sep"><td colspan="12">SignalAF board · ${B.window}${days === 1 ? ' (no 24h window)' : ''} · field ${B.field}</td></tr>`;
+    h += `<tr class="exp"><td colspan="12">${boardExplain()}${od ? ` <b class="od">Overdue to resubmit: ${esc(od)}.</b>` : ''}</td></tr>`;
+    h += tr(`#${B.top.rank} ${B.top.name}`, `board leader · ${B.window}${BOARD_TAG}`, fromBoard(B.top, bwd), 'ext');
+    if (B.you && B.you !== B.top) h += tr(`#${B.you.rank} ${B.you.name}`, `you on the board · ${B.window} · last submitted${BOARD_TAG}`, fromBoard(B.you, bwd), 'me');
   }
   const SRC = { you: 'main thread', subagents: 'subagents', compaction: 'compaction', harness: 'harness · aux' };
-  h += `<tr class="sep"><td colspan="12">Breakdown · by source and model</td></tr>`;
+  h += `<tr class="sep"><td colspan="12">Breakdown · by source and model · ${pipeOf(s.total, covTip())} <span class="c-m">${esc(covText())}</span></td></tr>`;
   const srcs = Object.entries(s.sources).sort((a, b) => b[1].output - a[1].output);
-  if (srcs.length > 1) for (const [k, v] of srcs) h += tr(SRC[k] || k, 'reported tokens', local(v.board.logged, v));
+  if (srcs.length > 1) for (const [k, v] of srcs) h += tr(SRC[k] || k, `tokens${pgOf(v)}`, local(v.board.logged, v));
   for (const [m, v] of Object.entries(s.models).sort((a, b) => b[1].output - a[1].output))
-    h += tr(m.replace('claude-', ''), `model · ${g('logged input', 'Logged input')}`, local(v.board.logged, v), 'clk', ` data-model="${esc(m)}"`);
+    h += tr(m.replace('claude-', ''), `model · ${g('logged input', 'Logged input')}${pgOf(v)}`, local(v.board.logged, v), 'clk', ` data-model="${esc(m)}"`);
   document.getElementById('bb').innerHTML = h;
+  document.getElementById('bgr').innerHTML = ['reported', 'logged', 'computed', 'estimated'].map((x) => pg(x)).join('') + ' <span class="c-m">Reported rows are provider-attested; logged rows come from local transcripts; typed input is estimated.</span>';
+  const sb = document.querySelector('[data-act="submit"]'), odw = overdue();
+  if (sb) { sb.classList.toggle('overdue', !!odw); sb.textContent = odw ? 'Submit to board · overdue' : 'Submit to board';
+    sb.dataset.tip = odw ? `Your submitted board row is out of date: ${odw}. Opens a preview only; nothing is sent.` : 'Preview the snapshot that would be sent to the SignalAF board. Nothing is sent.'; }
 }
 
 function renderStrip() {
-  const t = S.total, b = R?.row || null, T = (k, v, sub = '', c = '') => `<div class="panel ${c}"><div class="tk">${g(k)}</div><div class="tv">${v}${sub ? ` <small>${sub}</small>` : ''}</div></div>`;
+  const t = S.total, b = R?.row || null, T = (k, v, sub = '', c = '', gr = '') => `<div class="panel ${c}"><div class="tk">${g(k)}</div><div class="tv">${v}${sub ? ` <small>${sub}</small>` : ''}</div><div class="pgr">${gr}</div></div>`;
   const grand = t.input + t.output + t.cacheRead + t.cacheWrite;
-  document.getElementById('strip').innerHTML = mode === 'raw'
-    ? T('∑ Total tokens', big(grand), `${big(grand / (S.windowDays || 1))}/day`, 'grand') + T('Prompts', fmt(t.prompts))
-      + T('Logged input', big(t.input)) + T('Output', big(t.output)) + T('Cache read', big(t.cacheRead)) + T('Cache write', big(t.cacheWrite))
-      + T('Requests', fmt(t.requests), `${fmt(S.sessionCount)} sess`) + T('Cost · live', '$' + fmt(t.cost, 2))
-    : T('Υ Yield · SigRank', ups(b?.yield), b?.class || '', 'grand y') + T('▲ SNR', pct(b?.snr)) + T('⚡ Velocity', fmt(b?.velocity, 2))
-      + T('⚙ Leverage', b ? fmt(b.leverage, 0) + '×' : '—') + T('✧ 10×Dev', fmt(b?.dev10x, 2)) + T('Ⅴ Scale V', fmt(b?.scaleV, 2))
-      + T('⋮ C:I:O', b?.cio || '—') + T('Board rank', B?.you ? `#${B.you.rank}` : '—', B ? `of ${B.field}` : '');
+  const tg = pgOf(t), cg = pgOf({ grade: 'computed' }, `Computed from ${days === 1 ? R?.inputs || 'unknown' : 'logged'} token counts.`);
+  const cost = t.grade === 'logged' ? ['—', ''] : ['$' + fmt(t.cost, 2), pg('reported', null, 'OTel rows only: logged rows carry no cost, so this undercounts when the window includes logs.')];
+  document.getElementById('strip').innerHTML = `<div class="pbar">${pipeOf(t, covTip())}<span>${esc(covText())}</span><span>· ${winLabel()} scores: ${days === 1 ? 'computed from live OTel' : 'computed by sigrank from logs'}</span></div>` + (mode === 'raw'
+    ? T('∑ Total tokens', big(grand), `${big(grand / (S.windowDays || 1))}/day`, 'grand', tg) + T('Prompts', fmt(t.prompts), '', '', tg)
+      + T('Logged input', big(t.input), '', '', tg) + T('Output', big(t.output), '', '', tg) + T('Cache read', big(t.cacheRead), '', '', tg) + T('Cache write', big(t.cacheWrite), '', '', tg)
+      + T('Requests', fmt(t.requests), `${fmt(S.sessionCount)} sess`, '', tg) + T('Cost · live', cost[0], '', '', cost[1])
+    : T('Υ Yield · SigRank', ups(b?.yield), b?.class || '', 'grand y', cg) + T('▲ SNR', pct(b?.snr), '', '', cg) + T('⚡ Velocity', fmt(b?.velocity, 2), '', '', cg)
+      + T('⚙ Leverage', b ? fmt(b.leverage, 0) + '×' : '—', '', '', cg) + T('✧ 10×Dev', fmt(b?.dev10x, 2), '', '', cg) + T('Ⅴ Scale V', fmt(b?.scaleV, 2), '', '', cg)
+      + T('⋮ C:I:O', b?.cio || '—', '', '', cg) + T('Board rank', B?.you ? `#${B.you.rank}` : '—', B ? `${B.window} · of ${B.field}` : '', '', BOARD_TAG));
 }
 
 function renderReadout() {
   const t = S.total, b = R?.row || null;
-  document.getElementById('rw').textContent = days ? (days === 1 ? '24h' : days + 'd') : 'all';
-  const gap = b && B?.top ? b.yield / B.top.metrics.yield : null;
+  document.getElementById('rw').innerHTML = (days ? (days === 1 ? '24h' : days + 'd') : 'all') + ' ' + (days === 1 ? pipeOf(S.total, covTip()) : pipe('computed · logs'));
+  const gap = b && B?.top && sameWin() ? b.yield / B.top.metrics.yield : null;  // cross-window ratios mean nothing
   document.getElementById('ro').innerHTML = b ? `
     <div class="bigrow"><div class="big">${ups(b.yield)}<small>${g('Υ')} · ${g(b.class, 'Class')}</small></div><button class="btn" data-act="calc" data-tip="Pick a Υ score and see what you would have to change to reach it.">What would it take?</button></div>
-    <div class="sub">Composition</div>
+    <div class="sub">Composition ${pgOf({ grade: 'computed' }, 'Ratios of the token counts in the YOU row.')}${days === 1 ? pipeOf(S.total) : pipe('computed · logs')}</div>
     <div class="kv">
       <span>${g('C:I:O')}</span><span>${b.cio}</span>
       <span>${g('Vel · Lev')}</span><span>${fmt(b.velocity, 2)} · ${fmt(b.leverage, 0)}×</span>
@@ -458,10 +573,10 @@ function renderReadout() {
       <span>${g('Construction')}</span><span>${fmt(b.construction, 4)}</span>
       <span>${g('Input', 'Logged input')}</span><span>${big(b?.input)}</span>
     </div>
-    <div class="sub">Against the board</div>
+    <div class="sub">Against the board ${BOARD_TAG}</div>
     <div class="kv">
-      <span>${g('vs #1')} ${B?.top ? B.top.name : ''}</span><span class="${gap >= 1 ? 'c-y' : 'c-total'}">${gap == null ? '—' : (gap >= 1 ? '▲ ' : '▼ ') + fmt(gap >= 1 ? gap : 1 / gap, 2) + '×'}</span>
-      <span>${g('Your board row')}</span><span>${B?.you ? `#${B.you.rank} · Υ ${ups(B.you.metrics.yield)} · ${B.you.cls}` : '—'}</span>
+      <span>${g('vs #1')} ${B?.top ? B.top.name : ''}${B && !sameWin() ? ` <small>(${B.window} board ≠ ${R?.window || '—'} view)</small>` : ''}</span><span class="${gap >= 1 ? 'c-y' : 'c-total'}">${gap == null ? '—' : (gap >= 1 ? '▲ ' : '▼ ') + fmt(gap >= 1 ? gap : 1 / gap, 2) + '×'}</span>
+      <span>${g('Your board row')}</span><span>${B?.you ? `#${B.you.rank} · Υ ${ups(B.you.metrics.yield)} · ${B.you.cls} <small>${B.window} · ${boardDate(B.you) || 'date unknown'}</small>` : '—'}</span>
     </div>` : '<div class="empty">Waiting for your first prompt…</div>';
   document.getElementById('dl').innerHTML = b ? deltaTable() : '';
   if (!b) { document.getElementById('ladder').innerHTML = ''; document.getElementById('legend').innerHTML = ''; return; }
@@ -486,19 +601,102 @@ function deltaTable() {
     <table class="dt"><thead><tr><th></th><th>30d</th><th>60d</th><th>90d</th><th>Career</th></tr></thead><tbody>${D.rows.map((r) => `<tr><td>${g(r.label.replace(/ \(.*\)/, '').replace(' / day', '/day').replace('Typed input', 'Typed'), r.label)}</td>${dc(r.k, r.d30)}${dc(r.k, r.d60)}${dc(r.k, r.d90)}<td class="c-hi">${car(r.k, r.career)}</td></tr>`).join('')}</tbody></table>
     <div class="note" style="margin:3px 0 0">Recent window minus your all-time value. Green = ahead of your usual.${(S.dailies?.length || 0) < 90 ? ' Your history is shorter than 90 days, so some windows match.' : ''}</div>`;
 }
+// Tiers 2 and 3 (src/artifact.mjs). Chars and lines are exact counts of generated text; tokens come from the disclosed chars-per-token fit.
+function tierBlock() {
+  const a = A && A.days === days ? A : null;
+  const hd = (n, tag) => `<div class="sub">${g(n)} ${tag}</div>`, dtag = (note, label) => pg('derived', null, note, label);
+  if (!a || a.status === 'pending') return hd('Tier 2 · derived', dtag('')) + '<div class="note">Reading transcripts in the background…</div>';
+  if (a.status === 'error' || !a.paired) return hd('Tier 2 · derived', dtag('')) + `<div class="note">Transcript read failed (${esc(a.error || 'unknown')}). Reported counters are unaffected.</div>`;
+  const P = a.paired, W = a.window, C = P.classes, R = a.ratio, sh = P.shares, md = (ms) => new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const rate = CL.filter((c) => c !== 'other').map((c) => `${c} ${fmt(R.charsPerToken[c], 2)}${R.source[c] === 'class fit' ? '' : ` (${R.source[c] === 'pooled fit' ? 'pooled' : R.source[c]})`}`).join(' · ');  // a class without enough requests of its own uses the pooled rate: say so per class
+  const rule = `Tokens ≈ chars ÷ chars-per-token, fit from your own requests (${rate}). Generated text only.`;
+  const row = (c) => !C[c] ? '' : `<tr><td>${clName(c)}</td><td>${fmt(C[c].edits)}</td><td>${fmt(C[c].lines)}</td><td>≈${big(C[c].tokens)}</td><td>${pct(sh[c], 1)}</td></tr>`;
+  const mix = (note) => pg('mixed', ['derived', 'reported'], note, 'mixed');  // derived tokens ÷ reported output tokens
+  const shareNote = `Derived file-text tokens ÷ reported output tokens (${fmt(P.reportedOutput)}) over the span where telemetry exists.`;
+  const tf = a.transcriptsFromMs, late = tf != null && tf > P.sinceMs;  // transcripts on disk start after the span: earlier edits are unknown, not zero
+  const e = P.edits, none = !C.total.edits;
+  const j = `${fmt(e.joined)}/${fmt(e.seen)}`;
+  const resid = P.residual, rtag = pg('estimated', null, 'Reported output tokens minus the tier-2 file text and the tier-2b operations. Not measured: planning, narration, retries, thinking, other tool arguments and call wrappers all land here.', 'residual · by difference');
+  const O = P.operations || null, os = P.shares.operations, oc = O?.calls, OR = R.operations, orate = O &&  `Tokens ≈ chars ÷ ${fmt(OR.charsPerToken, 2)} chars per token (${OR.source}, the same fit as tier 2). Command and MCP input text only.`;
+  const orow = (c) => !O.categories[c].calls ? '' : `<tr><td>${opName(c)}</td><td>${fmt(O.categories[c].calls)}</td><td>≈${big(O.categories[c].tokens)}</td><td>${pct(os[c], 1)}</td></tr>`;
+  const opsBlock = !O ? '' : !oc.counted ? '<div class="note">No commands or MCP calls read from transcripts in this span.</div>' : `<table class="dt"><thead><tr><th>Category</th><th>Calls</th><th><span class="gl" tabindex="0" data-tip="${escA(orate)}">≈Tok</span></th><th>Of out ${mix('Derived operation tokens ÷ reported output tokens (' + fmt(P.reportedOutput) + ') over the span where telemetry exists.')}</th></tr></thead><tbody>${OPC.map(orow).join('')}
+      <tr><td>operations</td><td>${fmt(O.work.calls)}</td><td>≈${big(O.work.tokens)}</td><td>${pct(os.work, 1)}</td></tr>
+      <tr class="sep"><td colspan="4">inspection · overhead, not artifact</td></tr>
+      <tr><td>${opName('inspection')}</td><td>${fmt(O.inspection.calls)}</td><td>≈${big(O.inspection.tokens)}</td><td>${pct(os.inspection, 1)}</td></tr>
+      <tr><td>commands + MCP calls</td><td>${fmt(O.total.calls)}</td><td>≈${big(O.total.tokens)}</td><td>${pct(os.total, 1)}</td></tr></tbody></table>`;
+  const opsNote = !O ? '' : `${fmt(oc.counted)} counted (${fmt(O.via.shell)} shell · ${fmt(O.via.mcp)} MCP · ${fmt(O.via.agent || 0)} agent/workflow) · ${fmt(oc.rejected)} rejected · ${fmt(oc.failed)} failed (≈${big(oc.failedTokens)} tok of arguments stay in the residual) · ${fmt(oc.unjoined)} without an OTel decision · joined ${fmt(oc.joined)}/${fmt(oc.seen)} · ${g('chars / token')} ${fmt(OR.charsPerToken, 2)}`;
+  return `${hd('Tier 2 · derived', dtag(rule))}
+    ${none ? '<div class="note">No edits read from transcripts in this span.</div>' : `<table class="dt"><thead><tr><th>Class</th><th>Edits</th><th>Lines</th><th><span class="gl" tabindex="0" data-tip="${escA(rule)}">≈Tok</span></th><th>Of out ${mix(shareNote)}</th></tr></thead><tbody>${CL.map(row).join('')}
+      <tr><td>files</td><td>${fmt(C.total.edits)}</td><td>${fmt(C.total.lines)}</td><td>≈${big(C.total.tokens)}</td><td>${pct(sh.artifact, 1)}</td></tr></tbody></table>`}
+    <div class="kv" style="margin-top:3px">
+      <span>${g('Code share of output')}</span><span>${pct(sh.code, 1)}${mix(`Code tokens ≈ ${fmt(C.code.tokens)} ÷ reported output ${fmt(P.reportedOutput)} over the span where telemetry exists. ${rule}`)}</span>
+      <span>${g('Join coverage')}</span><span>${j} <span class="c-m">edits joined</span></span>
+    </div>
+    <div class="note" style="margin:2px 0 0">${fmt(e.counted)} counted · ${fmt(e.rejected)} rejected · ${fmt(e.failed)} failed · ${fmt(e.unjoined)} without an OTel decision · since ${md(P.sinceMs)}${P.same ? '' : ' (where telemetry exists)'}${late ? ` · transcripts only reach back to ${md(tf)}, so earlier edits are unknown, not zero` : ''} · ${g('chars / token')} ${rate}</div>
+    ${!P.same ? `<div class="note" style="margin:2px 0 0">${tf != null && tf > W.sinceMs ? `Transcripts reach back only to ${md(tf)} (window starts ${md(W.sinceMs)}), so from ${md(tf)}` : `Whole window since ${md(W.sinceMs)}`}: ${fmt(W.classes.total.edits)} edits · ${fmt(W.classes.total.lines)} lines · ≈${big(W.classes.total.tokens)} tokens (no reported output before telemetry, so no share)</div>` : ''}
+    ${!O ? '' : `${hd('Tier 2b · operations', dtag(orate))}
+    ${opsBlock}
+    <div class="note" style="margin:2px 0 0">${opsNote}</div>
+    <div class="note" style="margin:2px 0 0">Commands and MCP calls are sorted into one category each (a compound command takes its most consequential part). Inspection is subtracted from output here too, and is labeled overhead, not work. Text a command writes into a file with a heredoc (cat > f <<EOF) is counted as file-ops (service-config on a system path) even when the same command also runs a test or git, and is not in tier 2.${O.heredocFiles?.calls ? ` That is ${fmt(O.heredocFiles.calls)} commands · ≈${big(O.heredocFiles.tokens)} tok of file text, already inside the rows above; the file-ops call count only counts commands whose main action was a file operation.` : ''} Only Bash, Monitor and MCP calls are measured here; other tools' arguments stay in the residual.</div>`}
+    ${hd('Tier 3 · residual', rtag)}
+    <div class="kv"><span>residual</span><span>${P.reportedOutput ? `≈${big(resid.tokens)} · ${pct(resid.share, 1)} of output ${mix('Reported output tokens minus the derived file text and the derived operations (inspection included), divided by reported output tokens. By difference, not measured.')}` : '—'}</span>
+      ${resid.beforeOperations ? `<span>before operations</span><span>${P.reportedOutput ? `≈${big(resid.beforeOperations.tokens)} · ${pct(resid.beforeOperations.share, 1)} of output` : '—'}</span>` : ''}</div>
+    <div class="note" style="margin:2px 0 0">residual · by difference (planning, narration, retries, thinking, other tool arguments, call wrappers — not measured)${resid.overrun ? ' · the file-text and operations estimates exceed reported output here, so the residual is floored at 0' : ''}</div>`;
+}
+const CL = ['code', 'infra', 'docs', 'config', 'other'];
+const OPC = ['deploy-hosting', 'data', 'service-config', 'package', 'vcs', 'build-test-run', 'file-ops', 'orchestration', 'other'];  // work categories; inspection is shown apart
+const OP_DEF = { 'deploy-hosting': 'vercel, wrangler, cloudflared, netlify, fly, docker, kubectl, terraform, cloud CLIs, and Vercel MCP writes.', data: 'supabase, psql, sqlite3 and other SQL writes, migrations, and Supabase MCP writes.', 'service-config': 'launchctl, systemctl, crontab, defaults write, brew services, pm2, and file operations on system or config paths (LaunchAgents, ~/.config, ~/.claude, /etc, shell profiles). Stripe MCP writes.', package: 'npm, pnpm, yarn, pip, brew, cargo, go and similar installs, updates and publishes.', vcs: 'git and gh commands that change something: add, commit, push, merge, pr create. git status, log and diff are inspection.', 'build-test-run': 'node, python, make, npm test and run, tsc and the like. Includes inline scripts (node -e, python heredocs) and browser-driving MCP calls. Not only tests and builds: it is the command text that is not a file write, git, deploy or the like.', 'file-ops': 'mkdir, mv, cp, rm, chmod, sed -i, tee, find -delete, curl -o and wget downloads, and shell redirects or heredocs that write a file, outside system paths. The text of a heredoc written into a file counts here even when the same command also runs a test or git.', orchestration: 'Delegation: the prompts Claude writes to subagents (Agent, Task), workflow scripts (Workflow) and messages to running agents (SendMessage). Counted as generated text, like a command.', other: 'Commands and MCP calls that match no other category, plus commands made only of shell glue (cd, sleep).', inspection: 'ls, cat, grep, rg, find (without -delete or -exec), head, tail, git status, log and diff, curl GET, and MCP get/list/search/read calls. Overhead, not artifact.' };
+const opName = (c) => `<span class="gl" tabindex="0" data-tip="${escA(OP_DEF[c] + ' Rules: docs/artifact-measurement.md.')}">${c}</span>`;
+const CLS_URL = window.__SNAPSHOT ? 'https://github.com/SunrisesIllNeverSee/sigrank-otel-public/blob/main/docs/classification.md' : API + '/docs/classification.md';
+const CL_DEF = { code: 'Source and markup: js, ts, py, html, css, sql and the like, outside the infra roles.', infra: 'Agent and coordination scaffolding (CLAUDE.md, AGENTS.md, .claude, .coord, skills), ops and deploy files (Dockerfile, plist, CI workflows, vercel.json, migrations), shell and automation scripts, and ~/.config. Picked by path role before extension. A label that splits the count, not a ranking of one class over another.', docs: 'Prose: md, txt, rst and the like, outside the infra roles.', config: 'Data and settings files: json, yaml, toml, ini, dotfiles, outside the infra roles.', other: 'Everything else, including csv, svg, logs and unknown extensions.' };
+const clName = (c) => `<span class="gl" tabindex="0" data-tip="${escA(CL_DEF[c] + ' Rules: docs/classification.md.')}">${c}</span>`;
 function renderShip() {
   const sh = S.ship, p = S.pace, t = S.total, b = t.board.typed ?? t.board.logged;
   const dv = Object.entries(S.days), val = (v) => mode === 'raw' ? v.output : (v.board.typed?.yield || 0);
   const max = Math.max(1, ...dv.map(([, v]) => val(v)));
-  const accept = sh.editAccept + sh.editReject ? sh.editAccept / (sh.editAccept + sh.editReject) : null;
+  const shg = sh.grade === 'unknown' ? pg('unknown', null, 'No Claude Code line/commit counters in this window (history from logs carries none), so zero here means not recorded.') : pgOf(sh, 'Claude Code\'s own OTel counters, not git.');
+  const prop = sh.editProposed ?? sh.editAccept + sh.editReject, accept = prop ? sh.editAccept / prop : null, unk = sh.grade === 'unknown', N = (v) => unk ? '—' : fmt(v);
+  document.getElementById('shp').innerHTML = pipeOf(sh, 'Counters and pace exist only in the live stream.');
+  const lang = (sh.editByLanguage || []).map((l) => { const n = l.accept + l.reject;
+    return `<tr><td${l.langs ? ` data-tip="${escA(l.langs + ' more languages, folded together.')}"` : ''}>${esc(l.language)}</td><td>${fmt(l.accept)}/${fmt(n)}</td><td>${pct(l.accept / n, 1)}</td></tr>`; }).join('');
+  // git-local shadow rows (src/git.mjs). `gp` = span where OTel counters exist (the comparable one); `gw` = the whole window.
+  const gok = G && G.days === days, gw = gok ? G.window : null, gp = gok ? G.paired : null, gr = (x) => x?.status === 'ready';
+  const sg = (n) => (n >= 0 ? '+' : '−') + fmt(Math.abs(n)), md = (ms) => new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const gitTag = pg('git-local', null, 'Your commits in the repos your sessions worked in; shadow rows beside the reported counters.');
+  const ratio = gr(gp) && !unk && sh.outputReported ? r1(gp.net / sh.outputReported * 1000) : '—';
+  const cc = gr(gp) ? gp.claude : null, ratioC = cc && !unk && sh.outputReported ? r1(cc.net / sh.outputReported * 1000) : '—';
+  let gitBlock = '';
+  if (gr(gp)) gitBlock = `<div class="sub">${g('Committed (git)')} ${gitTag}</div>
+    <div class="shipbig"><b class="c-y">+${fmt(gp.added)}</b><b class="c-red">−${fmt(gp.removed)}</b><span class="c-m">lines · net ${sg(gp.net)}</span></div>
+    <div class="note" style="margin:0">${fmt(gp.commits)} commits · ${fmt(gp.reposWithCommits)} of ${fmt(gp.repoCount)} repos · your commits · since ${md(gp.sinceMs)}${gp.same ? '' : ' (where telemetry counters exist)'}</div>
+    ${cc ? `<div class="note" style="margin:2px 0 0">${g('Claude co-authored')} ${fmt(cc.commits)} of ${fmt(gp.commits)} commits · +${fmt(cc.added)} −${fmt(cc.removed)} · net ${sg(cc.net)}</div>` : ''}
+    ${gp.byClass ? `<div class="note" style="margin:2px 0 0">${g('Committed net by class')} ${CL.filter((c) => gp.byClass[c] && (gp.byClass[c].files || gp.byClass[c].net)).map((c) => `<span class="gl" tabindex="0" data-tip="${escA(`${c}: +${fmt(gp.byClass[c].added)} −${fmt(gp.byClass[c].removed)} across ${fmt(gp.byClass[c].files)} distinct files per repo. Classified by path role, then extension: docs/classification.md.`)}">${c} ${sg(gp.byClass[c].net)}</span>`).join(' · ')}</div>` : ''}
+    ${!gp.same && gr(gw) ? `<div class="note" style="margin:2px 0 0">Whole window since ${md(gw.sinceMs)}: ${fmt(gw.commits)} commits · +${fmt(gw.added)} −${fmt(gw.removed)} · net ${sg(gw.net)}</div>` : ''}`;
+  else if (G && gok && (gp?.status === 'pending' || gw?.status === 'pending')) gitBlock = `<div class="sub">${g('Committed (git)')} ${gitTag}</div><div class="note">Counting git history in the background…</div>`;
+  else if (G && gok && (gp?.status === 'error' || gw?.status === 'error')) gitBlock = `<div class="sub">${g('Committed (git)')} ${gitTag}</div><div class="note">Git count failed (${esc(gp?.error || gw?.error || 'unknown')}). Reported counters are unaffected.</div>`;
+  const gitFun = gr(gp) ? `<div class="fg">git ${fmt(gp.commits)} · net ${sg(gp.net)}</div>` : '';
   document.getElementById('sh').innerHTML = `
-    <div class="shipbig"><b class="c-y">+${fmt(sh.added)}</b><b class="c-red">−${fmt(sh.removed)}</b><span class="c-m">lines</span></div>
-    <div class="kv" style="margin-top:3px">
-      <span>${g('Commits · PRs')}</span><span>${fmt(sh.commits)} · ${fmt(sh.prs)}</span>
-      <span>${g('Edits accepted')}</span><span>${accept == null ? '—' : pct(accept, 0)} <span class="c-m">(${fmt(sh.editAccept)}/${fmt(sh.editAccept + sh.editReject)})</span></span>
-      <span>${g('Lines / 1K output')}</span><span>${t.output ? fmt((sh.added + sh.removed) / t.output * 1000, 1) : '—'}</span>
+    <div class="sub">${g('Tier 1 · reported')} ${shg}</div>
+    <div class="shipbig"><b class="c-y">+${N(sh.added)}</b><b class="c-red">−${N(sh.removed)}</b><span class="c-m">lines · net ${unk ? '—' : (sh.added >= sh.removed ? '+' : '−') + fmt(Math.abs(sh.added - sh.removed))}</span></div>
+    ${!unk && S.coverage?.otelStartMs != null && !S.coverage.full ? `<div class="note" style="margin:0">since ${md(S.coverage.otelStartMs)} (live OTel) · ${covText()}</div>` : ''}
+    ${gitBlock}
+    <div class="sub">${g('Edit funnel')}</div>
+    <div class="fun">
+      <div><div class="fl">proposed</div><div class="fv">${N(prop)}</div><div class="fs">edits</div></div>
+      <div><div class="fl">accepted</div><div class="fv">${unk || accept == null ? '—' : `${fmt(sh.editAccept)}/${fmt(prop)}`}</div><div class="fs">${accept == null ? 'edits' : pct(accept, 1)}</div></div>
+      <div><div class="fl">written</div><div class="fv">${unk ? '—' : `+${fmt(sh.added)}`}</div><div class="fs">${unk ? 'lines' : `−${fmt(sh.removed)} lines`}</div></div>
+      <div><div class="fl">${g('Commits · PRs', 'Commits · PRs').replace('Commits · PRs','committed')}</div><div class="fv">${N(sh.commits)}</div><div class="fs">${unk ? 'commits · PRs' : `commits · ${fmt(sh.prs)} PRs`}</div>${gitFun}</div>
     </div>
-    <div class="sub">Pace</div>
+    <div class="kv" style="margin-top:3px">
+      <span>${g('Edits accepted')}</span><span>${accept == null ? '—' : pct(accept, 1)} <span class="c-m">(${fmt(sh.editAccept)}/${fmt(prop)})</span></span>
+      <span>${g('Lines / 1K output')}</span><span>${sh.outputReported ? r1((sh.added + sh.removed) / sh.outputReported * 1000) : '—'}${pgOf({ grade: 'computed' }, 'Reported lines ÷ output tokens on reported (OTel) rows only, so logged output never dilutes it. These lines are Claude Code\'s own counters, not git.')}</span>
+      <span>${g('Committed net lines / 1K output')}</span><span>${ratio}${pg('mixed', ['git-local', 'reported'], gr(gp) ? `Git-local net lines (${fmt(gp.net)}) ÷ reported output tokens (${fmt(sh.outputReported)}) over the span where telemetry exists.` : 'Needs the git count and reported output in this window.', 'mixed')}</span>
+      <span>${g('Claude co-authored net / 1K output')}</span><span>${ratioC}${pg('mixed', ['git-local', 'reported'], cc ? `Net lines in your commits that carry a Claude Co-authored-by trailer (${fmt(cc.net)}) ÷ reported output tokens (${fmt(sh.outputReported)}) over the span where telemetry exists.` : 'Needs the git count and reported output in this window.', 'mixed')}</span>
+    </div>
+    ${lang ? `<div class="sub">${g('Edits by language')} <span class="c-m">accepted/decided</span> ${shg}</div>
+    <table class="dt"><thead><tr><th>Language</th><th>Accepted</th><th>%</th></tr></thead><tbody>${lang}</tbody></table>` : ''}
+    ${tierBlock()}
+    <div class="sub">${g('Pace')} ${pgOf(p, 'Rates divide reported time by reported (OTel) rows only.')}</div>
     <div class="kv">
       <span>${g('Active time')}</span><span>${dur(p.activeSec)} <span class="c-m">(you ${dur(p.userSec)})</span></span>
       <span>${g('Cost / active hr')}</span><span>$${fmt(p.costPerHour, 2)}</span>
@@ -506,9 +704,10 @@ function renderShip() {
       <span>${g('TTFT · request (med)')}</span><span>${fmt(p.ttftMedMs / 1000, 1)}s · ${fmt(p.durMedMs / 1000, 1)}s</span>
       <span>${g('Subagents · compactions')}</span><span>${fmt(p.subagents)} · ${fmt(p.compactions)}</span>
     </div>
-    <div class="sub">${g('Cache hit rate')} · ${pct(b?.hitRate)}</div>
+    <div class="sub">${g('Cache hit rate')} · ${pct(b?.hitRate)} ${pgOf({ grade: 'computed' })}</div>
     <div class="meter"><div style="width:${(b?.hitRate || 0) * 100}%"></div></div>
-    <div class="sub">${g(mode === 'raw' ? 'Output per day' : 'Υ per day', mode === 'raw' ? 'Output per day' : 'Υ per day')} · ${dv.length}d</div>
+    <div class="kv" style="margin-top:3px"><span>${g('Construction')} <small class="c-m">cache write ÷ read</small></span><span>${b ? fmt(b.construction, 4) : '—'}${pgOf({ grade: 'computed' })}</span></div>
+    <div class="sub">${g(mode === 'raw' ? 'Output per day' : 'Υ per day', mode === 'raw' ? 'Output per day' : 'Υ per day')} · ${dv.length}d ${mode === 'raw' ? pgOf(t) : pgOf({ grade: 'computed' })}</div>
     ${lineGraph(dv, val, max)}`;
 }
 const pl = (p, dash, col) => p.length > 1 ? `<polyline points="${p.map((q) => q[0].toFixed(1) + ',' + q[1].toFixed(1)).join(' ')}" fill="none" stroke="${col}" stroke-width="1.5" vector-effect="non-scaling-stroke"${dash ? ' stroke-dasharray="4 3"' : ''}/>` : '';
@@ -534,21 +733,21 @@ function lineGraph(dv, val, max) {
 
 function renderTools() {
   const ts = S.tools, max = Math.max(1, ...ts.map((x) => x.calls));
-  document.getElementById('tn').textContent = `${fmt(ts.reduce((s, x) => s + x.calls, 0))} calls`;
+  document.getElementById('tn').innerHTML = `${fmt(ts.reduce((s, x) => s + x.calls, 0))} calls ${pgOf(S.toolsMeta)}${pipeOf(S.toolsMeta)}`;
   document.getElementById('tt').innerHTML = ts.length ? `<colgroup><col style="width:40%"><col style="width:17%"><col style="width:15%"><col style="width:13%"><col style="width:15%"></colgroup><thead><tr><th class="c-m">Tool</th><th class="c-m">Calls</th><th class="c-m"></th><th class="c-m"><span class="gl" tabindex="0" data-tip="Share of calls that succeeded.">OK</span></th><th class="c-m"><span class="gl" tabindex="0" data-tip="Average time one call took.">Avg</span></th></tr></thead><tbody>`
     + ts.map((x) => `<tr><td class="who" title="${x.name}${x.reject ? ' · ' + x.reject + ' rejected' : ''}">${tname(x.name)}${x.reject ? ' <span class="c-red">✕' + x.reject + '</span>' : ''}</td><td>${big(x.calls)}</td><td><span class="tb" style="width:${x.calls / max * 100}%"></span></td>
-      <td class="${x.ok < x.calls ? 'c-red' : 'c-snr'}">${fmt(x.ok / x.calls * 100, 0)}%</td><td>${!x.timed ? '—' : x.avgMs >= 1000 ? fmt(x.avgMs / 1000, 1) + 's' : fmt(x.avgMs) + 'ms'}</td></tr>`).join('') + '</tbody>'
+      <td class="${x.ok < x.calls ? 'c-red' : 'c-snr'}" title="${x.ok}/${x.calls} succeeded">${pct(x.ok / x.calls, 1)}</td><td>${!x.timed ? '—' : x.avgMs >= 1000 ? fmt(x.avgMs / 1000, 1) + 's' : fmt(x.avgMs) + 'ms'}</td></tr>`).join('') + '</tbody>'
     : '<tr><td class="empty">No tool calls yet</td></tr>';
 }
 
 function renderFeed() {
   const el = document.getElementById('ft');
-  document.getElementById('fnote').textContent = ftab === 'sessions' ? 'Each Claude Code session in this window, newest first.' : 'Every model call, tool call and prompt as it happens, newest first. New rows flash.';
+  document.getElementById('fnote').innerHTML = (ftab === 'sessions' ? 'Each Claude Code session in this window, newest first.' : 'Every model call, tool call and prompt as it happens, newest first. New rows flash.') + ' ' + (ftab === 'sessions' ? pgOf(S.total) + pipeOf(S.total, covTip()) : pgOf(S.feedMeta) + pipeOf(S.feedMeta));
   if (ftab === 'sessions') {
     el.innerHTML = `<thead><tr><th class="c-m">${g('Session')}</th><th class="c-m">Last</th><th class="c-m">${g('Prm')}</th><th class="c-m">${g('Typed')}</th><th class="c-m">${g('Out')}</th><th class="c-m">${g('+/−')}</th><th class="c-y">${g('Υ')}</th><th class="c-m">${g('Class')}</th></tr></thead><tbody>`
       + S.sessions.map((x) => { const r = x.board.typed; return `<tr><td class="who">${x.id.slice(0, 8)}<i>${x.models.map((m) => m.replace('claude-', '')).join(',')}</i></td>
         <td>${new Date(x.last).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</td><td>${fmt(x.prompts)}</td><td>${big(x.typed)}</td><td>${big(x.output)}</td>
-        <td><span class="c-y">+${fmt(x.added)}</span>/<span class="c-red">${fmt(x.removed)}</span></td><td class="c-y">${ups(r?.yield)}</td><td><span class="badge">${r?.class ?? '—'}</span></td></tr>`; }).join('') + '</tbody>';
+        <td>${lines(x, fmt)}</td><td class="c-y">${ups(r?.yield)}</td><td><span class="badge">${r?.class ?? '—'}</span></td></tr>`; }).join('') + '</tbody>';
     return;
   }
   const ICON = { api: '◆ API', tool: '⚙ TOOL', prompt: '▶ YOU', agent: '✦ AGENT', compact: '⟲ COMPACT' };
@@ -559,7 +758,7 @@ function renderFeed() {
     if (e.kind === 'api') d = mode === 'raw' ? `<span class="c-m">I</span> ${big(e.i)} <span class="c-m">O</span> ${big(e.o)} <span class="c-m">CR</span> ${big(e.cr)} <span class="c-m">CW</span> ${big(e.cw)}`
       : `<span class="c-m">O</span> ${big(e.o)} · ${fmt(e.dur / 1000, 1)}s · $${fmt(e.cost, 3)}`;
     else if (e.kind === 'tool') d = `${e.dur >= 1000 ? fmt(e.dur / 1000, 1) + 's' : fmt(e.dur) + 'ms'} · ${kb(e.bytes)}${e.fail ? ' <span class="c-red">FAIL</span>' : ''}`;
-    else if (e.kind === 'prompt') d = `${fmt(e.chars)} chars ≈ ${fmt(e.typed)} tok`;
+    else if (e.kind === 'prompt') d = `${fmt(e.chars)} chars <span class="gl" tabindex="0" data-tip="${escA('Estimated: ' + TYPED_RULE + '.')}">≈ ${fmt(e.typed)} tok</span>`;
     return `<tr class="ev ${fresh ? 'fresh' : ''}"><td>${clock(e.ms)}</td><td class="k-${e.kind}">${ICON[e.kind] || e.kind}</td><td class="who" title="${e.label || ''}">${tname(e.label || '')}${e.src && e.src !== 'you' ? `<i>${e.src}</i>` : ''}</td><td style="text-align:right">${d}</td></tr>`;
   }).join('') : '<tr><td class="empty">Waiting for activity…</td></tr>') + '</tbody>';
 }
@@ -579,17 +778,17 @@ function renderSessions(el) {
   const pct = (v) => { if (v == null || !yv.length) return null; let i = 0; while (i < yv.length && yv[i] <= v) i++; return i / yv.length; };
   const key = (x) => ssort === 'models' ? x.models.length : ssort === 'cls' ? (x.yield ?? -1) : ssort === 'rank' ? -(x.rank ?? 1e9) : (x[ssort] ?? -Infinity);
   list = [...list].sort((a, b) => key(b) - key(a));
-  el.innerHTML = `<div class="note">Every Claude Code session as a row, ranked by Υ against your other sessions. Click a row for the full breakdown; click a column to sort. Greyed rows are too short to rank.</div><div class="vbar"><span>Sessions as tanks · ranked by Υ among <b>${L.field}</b> eligible (≥${L.eligibleRule.prompts} prompts, ≥${L.eligibleRule.requests} req)</span>
+  el.innerHTML = `<div class="note">Every Claude Code session as a row, ranked by Υ against your other sessions. Click a row for the full breakdown; click a column to sort. Greyed rows are too short to rank. ${pipeOf(S.total, covTip())} ${esc(covText())}</div><div class="vbar"><span>Sessions as tanks · ranked by Υ among <b>${L.field}</b> eligible (≥${L.eligibleRule.prompts} prompts, ≥${L.eligibleRule.requests} req)</span>
     <select id="sproj"><option value="">All projects (${L.sessions.length})</option>${L.projects.map((p) => `<option ${p.project === sproj ? 'selected' : ''} value="${p.project}">${p.project} (${p.sessions})</option>`).join('')}</select>
     <label><input type="checkbox" id="sall" ${sall ? 'checked' : ''}> show ineligible</label><span class="push">${list.length} shown · click a row</span></div>
     <table><thead><tr>${SCOLS.map(([k, h]) => `<th data-k="${k}" class="${k === ssort ? 'on' : ''}">${g(h)}</th>`).join('')}</tr></thead><tbody>`
     + list.map((x) => { const d = dec(pct(x.yield)); return `<tr data-id="${x.id}" class="${x.eligible ? '' : 'dim'}">
-      <td class="who">${x.project}<i>${dayFmt(x.first)} · ${x.id.slice(0, 6)}</i>${trn(x.source)}</td>
+      <td class="who">${x.project}<i>${dayFmt(x.first)} · ${x.id.slice(0, 6)}</i>${trn(x.source)}${rowTag(x)}</td>
       <td>${x.rank ? `#${x.rank}<span class="c-m">/${L.field}</span>` : '<span class="c-m">✗</span>'}</td><td><span class="badge">${x.cls ?? '—'}</span></td>
       <td>${x.yield == null ? '—' : d == null || !x.eligible ? ups(x.yield) : `<span class="dec d${d}">${ups(x.yield)}</span>`}</td>
-      <td class="c-vel">${fmt(x.velocity, 2)}</td><td class="c-lev">${x.leverage == null ? '—' : fmt(x.leverage, 0) + '×'}</td><td class="c-snr">${x.snr == null ? '—' : (x.snr * 100).toFixed(1) + '%'}</td>
+      <td class="c-vel">${fmt(x.velocity, 2)}</td><td class="c-lev">${x.leverage == null ? '—' : fmt(x.leverage, 0) + '×'}</td><td class="c-snr">${x.snr == null ? '—' : pct(x.snr, 1)}</td>
       <td>${fmt(x.prompts)}</td><td>${fmt(x.requests)}</td><td>${big(x.typed)}</td><td>${big(x.output)}</td><td class="c-total">${big(x.total)}</td>
-      <td><span class="c-y">+${big(x.added)}</span>/<span class="c-red">${big(x.removed)}</span></td><td>${fmt(x.tools)}</td><td>${mins(x.minutes)}</td>
+      <td>${lines(x)}</td><td>${fmt(x.tools)}</td><td>${mins(x.minutes)}</td>
       <td class="c-m">${x.models.map((m) => m.m.replace(/-\d.*$/, '')).join(' ')}</td></tr>`; }).join('') + '</tbody></table>';
   el.querySelector('#sproj').onchange = (e) => { sproj = e.target.value; store.set('tp-sproj', sproj); render(); };
   el.querySelector('#sall').onchange = (e) => { sall = e.target.checked; store.set('tp-sall', sall ? '1' : '0'); render(); };
@@ -597,17 +796,23 @@ function renderSessions(el) {
   el.querySelectorAll('tbody tr').forEach((tr) => tr.onclick = () => openSession(tr.dataset.id));
 }
 
+// All-time views: pipeline mix counted from the days themselves (days with any live OTel vs days from logs only).
+function dailyPipe(ds) {
+  const n = ds.length, o = ds.filter((d) => d.grades?.includes('reported')).length;
+  if (!n) return '';
+  return `${pipe(o === n ? 'live · otel' : o ? 'otel + logs' : 'computed · logs')} <span class="c-m">live OTel on ${o} of ${n} days shown${o < n ? `, ${n - o} from logs only` : ''}</span>`;
+}
 function renderDaily(el) {
   const ds = S.dailies || [];
   const mx = Math.max(1, ...ds.map((d) => d.total));
-  el.innerHTML = `<div class="note">One row per day (a day runs 05:00 to 05:00): your score, tokens and code for that day. Click a row to see which models you used.</div><div class="vbar"><span>Daily sessions log · a day ends at 0${S.dayEndsHour}:00 the next morning · all time</span><span class="push">${ds.length} days · click a row</span></div>
+  el.innerHTML = `<div class="note">One row per day (a day runs 05:00 to 05:00): your score, tokens and code for that day. Click a row to see which models you used. ${dailyPipe(ds)}</div><div class="vbar"><span>Daily sessions log · a day ends at 0${S.dayEndsHour}:00 the next morning · all time</span><span class="push">${ds.length} days · click a row</span></div>
     <table><thead><tr>${['Day', 'Class', 'Υ', 'C:I:O', 'Prm', 'Req', 'Typed', 'Out', 'CR', 'CW', '∑', '', '+/−', 'Tools', 'Sess', 'Cost'].map((h) => `<th>${g(h)}</th>`).join('')}</tr></thead><tbody>`
-    + ds.map((d) => `<tr data-d="${d.day}"><td class="who">${new Date(d.day + 'T12:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}${trn(d.source)}</td>
+    + ds.map((d) => `<tr data-d="${d.day}"><td class="who">${new Date(d.day + 'T12:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}${trn(d.source)}${rowTag(d)}</td>
       <td><span class="badge">${d.cls ?? '—'}</span></td><td class="c-y">${ups(d.yield)}</td><td class="c-lev">${d.cio}</td><td>${fmt(d.prompts)}</td><td>${fmt(d.requests)}</td>
       <td>${big(d.typed)}</td><td>${big(d.output)}</td><td>${big(d.cacheRead)}</td><td>${big(d.cacheWrite)}</td><td class="c-total">${big(d.total)}</td>
       <td style="width:80px"><span class="tb" style="width:${d.total / mx * 100}%;background:var(--orange)"></span></td>
-      <td><span class="c-y">+${big(d.added)}</span>/<span class="c-red">${big(d.removed)}</span></td><td>${fmt(d.tools)}</td><td>${fmt(d.sessions)}</td><td>${d.cost ? '$' + fmt(d.cost, 2) : '—'}</td></tr>`
-      + (openDays.has(d.day) ? `<tr class="xp"><td colspan="16">models: ${d.models.map((m) => `<b class="c-y">${m.m}</b> ${big(m.n)}`).join(' · ')} · active ${mins(d.activeMin)}${d.commits ? ' · ' + d.commits + ' commits' : ''}</td></tr>` : '')).join('')
+      <td>${lines(d)}</td><td>${fmt(d.tools)}</td><td>${fmt(d.sessions)}</td><td>${d.cost ? '$' + fmt(d.cost, 2) : '—'}</td></tr>`
+      + (openDays.has(d.day) ? `<tr class="xp"><td colspan="16">models: ${d.models.map((m) => `<b class="c-y">${m.m}</b> ${big(m.n)}`).join(' · ')} · active ${mins(d.activeMin)}${d.commits && !noCnt(d) ? ' · ' + d.commits + ' commits' : ''}</td></tr>` : '')).join('')
     + '</tbody></table>';
   el.querySelectorAll('tr[data-d]').forEach((tr) => tr.onclick = () => { const k = tr.dataset.d; openDays.has(k) ? openDays.delete(k) : openDays.add(k); render(); });
 }
@@ -615,17 +820,17 @@ function renderDaily(el) {
 let UW = Number(store.get('tp-uw') || 1), U = null;
 function renderUsage(el) {
   const tok = (n) => n >= 1e9 ? (n / 1e9).toFixed(1) + 'b' : n >= 1e6 ? (n / 1e6).toFixed(1) + 'm' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(n);
-  const head = `<div class="note">What Claude Code reports in /usage, per model.</div><div class="vbar"><span class="seg" id="uw">${[[1, 'Last 24 hours'], [0, 'All time'], [7, 'Last 7 days'], [30, 'Last 30 days']].map(([d, l]) => `<button data-d="${d}" class="${d === UW ? 'on' : ''}">${l}</button>`).join('')}</span></div>`;
+  const head = `<div class="note">What Claude Code reports in /usage, per model, reproduced from your local transcripts. ${U?.d ? pg(U.d.grade, null, 'Token counts are read from local transcripts, not from live telemetry.') + pipe(U.d.pipeline) + pg(U.d.shareGrade, null, 'The % column is each model\'s share of the window\'s tokens, computed from those counts.', '% ' + U.d.shareGrade) : ''}</div><div class="vbar"><span class="seg" id="uw">${[[1, 'Last 24 hours'], [0, 'All time'], [7, 'Last 7 days'], [30, 'Last 30 days']].map(([d, l]) => `<button data-d="${d}" class="${d === UW ? 'on' : ''}">${l}</button>`).join('')}</span></div>`;
   if (!U || U.w !== UW) { el.innerHTML = head + '<div class="empty">Loading…</div>'; fetch(`${API}/api/usage?days=${UW}`).then((r) => r.json()).then((d) => { U = { w: UW, d }; if (view === 'usage') renderView(); }).catch(() => {}); }
   else el.innerHTML = head + `<table><thead><tr>${['Model', '%', 'In', 'Out', 'Cache read', 'Cache write'].map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>`
-    + U.d.models.map((m) => `<tr><td class="who">${m.model}</td><td>${(m.share * 100).toFixed(1)}%</td><td>${tok(m.input)}</td><td>${tok(m.output)}</td><td>${tok(m.cacheRead)}</td><td>${tok(m.cacheWrite)}</td></tr>`).join('') + '</tbody></table>';
+    + U.d.models.map((m) => `<tr><td class="who">${m.model}</td><td>${pct(m.share, 1)}</td><td>${tok(m.input)}</td><td>${tok(m.output)}</td><td>${tok(m.cacheRead)}</td><td>${tok(m.cacheWrite)}</td></tr>`).join('') + '</tbody></table>';
   el.querySelectorAll('#uw button').forEach((b) => b.onclick = () => { UW = Number(b.dataset.d); store.set('tp-uw', String(UW)); renderView(); });
 }
 
 const MICON = { tokens: '◆', best: '★', class: '▲', first: '✦', streak: '🔥', count: '#' };
 function renderMiles(el) {
   const ms = S.milestones || [];
-  el.innerHTML = `<div class="note">Moments worth noticing: new personal bests, class-ups, token landmarks and streaks, found by comparing your daily snapshots.</div><div class="vbar"><span>Recent milestones · all time · from snapshot deltas</span><span class="push">${ms.length}</span></div>`
+  el.innerHTML = `<div class="note">Moments worth noticing: new personal bests, class-ups, token landmarks and streaks, found by comparing your daily snapshots. ${pgOf({ grade: 'computed' }, 'Found by comparing daily aggregates; days before live OTel come from logs.')} ${dailyPipe(S.dailies || [])}</div><div class="vbar"><span>Recent milestones · all time · from snapshot deltas</span><span class="push">${ms.length}</span></div>`
     + (ms.length ? ms.map((m) => `<div class="ms"><span class="dt">${new Date(m.ms).toLocaleDateString([], { month: 'short', day: 'numeric', year: '2-digit' })}</span>
       <span class="ic k-${m.kind}">${MICON[m.kind] || '·'}</span><span class="lb">${m.label}</span><span class="dt">${m.detail || ''}</span></div>`).join('') : '<div class="empty">No milestones yet</div>');
 }
@@ -681,7 +886,7 @@ async function openSession(id) {
         <div class="c-m" style="display:flex;justify-content:space-between"><span>${clock(t0)}</span><span>out ${big(mo)} · ∑ ${big(mt)}</span><span>${clock(t1)}</span></div>
         <div class="sub">Totals</div>
         <div class="kv"><span>${g('Typed · logged I', 'Typed · logged I')}</span><span>${big(d.typed)} · ${big(d.input)}</span><span>Output</span><span>${big(d.output)}</span>
-          <span>Cache read · write</span><span>${big(d.cacheRead)} · ${big(d.cacheWrite)}</span><span>Lines</span><span><span class="c-y">+${fmt(d.added)}</span> / <span class="c-red">−${fmt(d.removed)}</span></span>
+          <span>Cache read · write</span><span>${big(d.cacheRead)} · ${big(d.cacheWrite)}</span><span>Lines</span><span>${noCnt(d) ? lines(d) : `<span class="c-y">+${fmt(d.added)}</span> / <span class="c-red">−${fmt(d.removed)}</span>`}</span>
           <span>Tool calls · failed</span><span>${fmt(d.tools)} · ${fmt(d.toolFail)}</span><span>Cost</span><span>${d.cost ? '$' + fmt(d.cost, 2) : '—'}</span></div>
         <div class="sub">Models</div>
         ${d.models.map((m) => `<div style="display:grid;grid-template-columns:110px 1fr 60px;gap:6px;align-items:center"><span class="lk" data-model="${esc(m.m)}" data-tip="Open this model's detail.">${m.m}</span><span class="tb" style="width:${m.n / mt_ * 100}%;background:var(--lime)"></span><span style="text-align:right">${big(m.n)}</span></div>`).join('')}
@@ -846,7 +1051,7 @@ function renderFirst() {
         ${card('Daily', 'One row per day: score, tokens, lines of code.', sk([[16], [10, 'a'], [24], [30, 'o']], [[16], [10, 'a'], [24], [18, 'o']], [[16], [10, 'a'], [24], [24, 'o']]))}
         ${card('Milestones', 'Personal bests, class-ups and streaks as they happen.', sk([[8, 'a'], [50]], [[8, 'a'], [38]], [[8, 'a'], [56]]))}
         ${card('Operator readout', 'Your big Υ number and where it sits on the Four Degrees ladder.', `<div class="big" style="font-size:16px;color:var(--muted)">Υ —</div><div style="height:5px;margin-top:8px;background:linear-gradient(90deg,#1f281c,#2f4a12 40%,#6aa300 75%,var(--lime));opacity:.5"></div>`)}
-        ${card('Shipped · pace · cache', 'Lines shipped, speed, cache reuse, and a per-day line graph.', `<svg viewBox="0 0 120 34" preserveAspectRatio="none"><polyline points="0,28 20,22 40,25 60,12 80,16 100,6 120,10" fill="none" stroke="#2f4a12" stroke-width="1.5" vector-effect="non-scaling-stroke"/></svg>`)}
+        ${card('Artifact lane · pace · cache', 'What was proposed, written and committed, then speed, cache reuse, and a per-day graph.', `<svg viewBox="0 0 120 34" preserveAspectRatio="none"><polyline points="0,28 20,22 40,25 60,12 80,16 100,6 120,10" fill="none" stroke="#2f4a12" stroke-width="1.5" vector-effect="non-scaling-stroke"/></svg>`)}
       </div></div>`;
   if (html !== setupHtml) { setupHtml = html; document.getElementById('setup').innerHTML = html; }
 }
@@ -862,7 +1067,9 @@ function render() {
 
 async function refresh() {
   try {
-    [S, R] = await Promise.all([fetch(`${API}/api/summary?days=${days}`).then((r) => r.json()), fetch(`${API}/api/sigrank?days=${days}`).then((r) => r.json()).catch(() => null)]);
+    [S, R, G, A] = await Promise.all([fetch(`${API}/api/summary?days=${days}`).then((r) => r.json()), fetch(`${API}/api/sigrank?days=${days}`).then((r) => r.json()).catch(() => null),
+      fetch(`${API}/api/git?days=${days}`).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+      fetch(`${API}/api/artifact?days=${days}`).then((r) => (r.ok ? r.json() : null)).catch(() => null)]);
     document.getElementById('dot').className = 'dot';
     document.getElementById('status').textContent = `live · synced ${new Date().toLocaleTimeString()}`;
     render();
@@ -894,7 +1101,7 @@ function bindSeg(id, attr, get, set) {
   const bs = document.querySelectorAll(`#${id} button`);
   bs.forEach((b) => { b.classList.toggle('on', b.dataset[attr] === String(get())); b.onclick = () => { set(b.dataset[attr]); bs.forEach((x) => x.classList.toggle('on', x === b)); }; });
 }
-bindSeg('win', 'd', () => days, (v) => { days = Number(v); store.set('tp-days', v); L = null; refresh(); refreshBoard(); refreshSessions(); });
+bindSeg('win', 'd', () => days, (v) => { days = Number(v); store.set('tp-days', v); L = null; G = null; A = null; refresh(); refreshBoard(); refreshSessions(); });
 bindSeg('view', 'v', () => view, setView);
 bindSeg('mode', 'm', () => mode, (v) => { mode = v; store.set('tp-mode', v); render(); });
 bindSeg('ftab', 't', () => ftab, (v) => { ftab = v; store.set('tp-ftab', v); render(); });

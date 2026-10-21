@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { cascade, summarize, typedTokens, rowSource, mixSource, isHarness } from './score.mjs';
+import { cascade, summarize, typedTokens, rowSource, mixSource, isHarness, rowGrade, gradeFields } from './score.mjs';
 import { msOf, projectOf } from './sessions.mjs';
 
 const PERIODS = { d30: 30, d60: 60, d90: 90, career: 0 };
@@ -40,7 +40,7 @@ export function modelDetail(rows, name, { sinceMs = 0, windowDays = 0 } = {}) {
   const known = new Set(evs.map(([, r]) => r.attrs?.model).filter(Boolean));
   if (!known.has(name) && known.has(`claude-${name}`)) name = `claude-${name}`;
   const M = {}; const pending = new Map(); const sess = {};
-  const blank = () => ({ requests: 0, typed: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, src: new Set() });
+  const blank = () => ({ requests: 0, typed: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, src: new Set(), gr: new Set() });
   const days = new Map();
   for (const [ms, r] of evs) {
     const a = r.attrs || {}; const sid = a['session.id'];
@@ -51,15 +51,15 @@ export function modelDetail(rows, name, { sinceMs = 0, windowDays = 0 } = {}) {
       cacheWrite: +a.cache_creation_tokens || 0, cost: +a.cost_usd || 0, typed: pending.get(sid) || 0 };
     pending.delete(sid);
     for (const k of Object.keys(d)) x[k] += d[k];
-    x.src.add(rowSource(r));
+    x.src.add(rowSource(r)); x.gr.add(rowGrade(r));
     if (m !== name) continue;
     const dd = days.get(dayKey(ms)) ?? days.set(dayKey(ms), { ...blank(), total: 0 }).get(dayKey(ms));
-    for (const k of Object.keys(d)) dd[k] += d[k]; dd.total += d.input + d.output + d.cacheRead + d.cacheWrite; dd.src.add(rowSource(r));
+    for (const k of Object.keys(d)) dd[k] += d[k]; dd.total += d.input + d.output + d.cacheRead + d.cacheWrite; dd.src.add(rowSource(r)); dd.gr.add(rowGrade(r));
     const s = sess[sid] ??= { id: sid, ...blank(), total: 0, first: ms, last: ms };
-    for (const k of Object.keys(d)) s[k] += d[k]; s.total += d.input + d.output + d.cacheRead + d.cacheWrite; s.last = ms; s.src.add(rowSource(r));
+    for (const k of Object.keys(d)) s[k] += d[k]; s.total += d.input + d.output + d.cacheRead + d.cacheWrite; s.last = ms; s.src.add(rowSource(r)); s.gr.add(rowGrade(r));
   }
   const mine = M[name]; if (!mine) return null;
-  const all = Object.values(M).reduce((t, v) => { for (const k of Object.keys(v)) if (k !== 'src') t[k] = (t[k] || 0) + v[k]; return t; }, {});
+  const all = Object.values(M).reduce((t, v) => { for (const k of Object.keys(v)) if (k !== 'src' && k !== 'gr') t[k] = (t[k] || 0) + v[k]; return t; }, {});
   const sc = (t) => (t.input > 0 || t.output > 0 ? cascade(t.input, t.output, t.cacheWrite, t.cacheRead) : null);
   const tot = (t) => t.input + t.output + t.cacheRead + t.cacheWrite;
   const f = (t) => { const c = sc(t); return { yield: num(c?.yield), velocity: num(c?.velocity), leverage: num(c?.leverage), snr: num(c?.snr), cls: c?.class ?? null,
@@ -72,13 +72,13 @@ export function modelDetail(rows, name, { sinceMs = 0, windowDays = 0 } = {}) {
     ['requests', 'Requests'], ['typed', 'Typed input'], ['total', 'Σ Tokens'], ['hitRate', 'Cache hit rate'], ['cost', 'Cost $']];
   const order = Object.entries(M).sort((p, q) => tot(q[1]) - tot(p[1])).map(([k]) => k); const i = order.indexOf(name);
   return {
-    name, source: mixSource(mine.src), windowDays,
+    name, source: mixSource(mine.src), ...gradeFields(mine.gr), windowDays,
     stats: LABELS.map(([k, label]) => ({ k, label, model: m[k], all: a[k], diff: m[k] != null && a[k] != null ? m[k] - a[k] : null })),
     totals: { ...m, input: mine.input, cacheRead: mine.cacheRead, cacheWrite: mine.cacheWrite, share: tot(all) ? tot(mine) / tot(all) : 0 },
-    daily: [...days.entries()].sort().map(([day, d]) => { const c = sc(d); return { day, source: mixSource(d.src), requests: d.requests, output: d.output,
+    daily: [...days.entries()].sort().map(([day, d]) => { const c = sc(d); return { day, source: mixSource(d.src), ...gradeFields(d.gr), requests: d.requests, output: d.output,
       total: d.total, typed: d.typed, yield: num(c?.yield) }; }),
-    sessions: Object.values(sess).sort((p, q) => q.total - p.total).slice(0, 10).map(({ src, ...s }) => { const c = sc(s);
-      return { ...s, source: mixSource(src), project: projectOf(s.id), yield: num(c?.yield), cls: c?.class ?? null }; }),
+    sessions: Object.values(sess).sort((p, q) => q.total - p.total).slice(0, 10).map(({ src, gr, ...s }) => { const c = sc(s);
+      return { ...s, source: mixSource(src), ...gradeFields(gr), project: projectOf(s.id), yield: num(c?.yield), cls: c?.class ?? null }; }),
     prev: order[i - 1] || null, next: order[i + 1] || null,
   };
 }

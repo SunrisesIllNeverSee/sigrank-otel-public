@@ -204,7 +204,7 @@ http.createServer(async (req, res) => {
       return;
     }
     if (u.pathname === '/' || u.pathname === '/dashboard') {
-      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache' });  // always revalidate: the page changes with the code
       res.end(fs.readFileSync(path.join(here, 'dashboard.html')));
       return;
     }

@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 // Same metric code the TUI and leaderboard use (token-cascade → tteop-spec).
 import { resolveCascade } from './cascade.mjs';
+import { estimateCost } from './pricing.mjs';
 const { cascade } = await resolveCascade();
 
 // Typed chars -> tokens (fit from transcripts: N ≈ 0.454·chars − 188 for long prompts; ~3.6 chars/token short).
@@ -46,7 +47,7 @@ export const gradeOf = (set) => (!set || !set.size ? 'unknown' : set.size > 1 ? 
 export const gradeList = (set) => [...(set || [])].sort();
 export const gradeFields = (set) => ({ grade: gradeOf(set), grades: gradeList(set) });
 
-const blank = () => ({ requests: 0, prompts: 0, chars: 0, typed: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, costTokens: 0 });
+const blank = () => ({ requests: 0, prompts: 0, chars: 0, typed: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, costTokens: 0, costEst: 0, unpriced: 0 });
 const gblank = () => ({ ...blank(), gr: new Set() });  // + the set of provenance grades that fed it
 
 // Where OTel starts, from data: first non-backfill row vs first row of any kind (memoized per row count).
@@ -162,6 +163,10 @@ export function summarize(rows, { sinceMs = 0, windowDays = 0 } = {}) {
       d = { requests: 1, input: +a.input_tokens || 0, output: +a.output_tokens || 0,
         cacheRead: +a.cache_read_tokens || 0, cacheWrite: +a.cache_creation_tokens || 0, cost: +a.cost_usd || 0 };
       if (d.cost) d.costTokens = d.input + d.output + d.cacheRead + d.cacheWrite;
+      else if (a.backfill) {  // transcripts carry no cost: estimate it (src/pricing.mjs), kept apart from reported cost
+        const e = estimateCost(a.model, d.input, d.output, d.cacheWrite, d.cacheRead);
+        if (e == null) d.unpriced = d.input + d.output + d.cacheRead + d.cacheWrite; else d.costEst = e;
+      }
       const src = sourceOf(a.query_source), gd = rg;
       add(sources[src] ??= gblank(), d); sources[src].gr.add(gd);
       if (src === 'harness') {

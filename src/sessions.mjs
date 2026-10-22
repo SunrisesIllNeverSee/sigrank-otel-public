@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { cascade, typedTokens, rowSource, mixSource, isHarness, rowGrade, gradeFields } from './score.mjs';
+import { rowCostEst } from './pricing.mjs';
 
 // Eligibility, like BlitzStars' battle minimums: tiny sessions don't get ranked or averaged.
 export const ELIGIBLE = { prompts: 3, requests: 10 };
@@ -32,7 +33,7 @@ function scanProjects() {
 }
 export const projectOf = (sid) => { if (!proj.has(sid)) scanProjects(); return proj.get(sid)?.project || 'unknown'; };
 
-const blank = () => ({ requests: 0, prompts: 0, typed: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0,
+const blank = () => ({ requests: 0, prompts: 0, typed: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, costEst: 0,
   tools: 0, toolFail: 0, added: 0, removed: 0, commits: 0, compactions: 0, subReq: 0, models: {}, toolNames: {}, src: new Set(), gr: new Set(), first: 0, last: 0, curve: [] });
 
 // Metrics compared in the popup. dir: +1 = higher is better, -1 = lower is better, 0 = neutral.
@@ -54,7 +55,7 @@ function build(rows) {
     if (ms) { s.first = s.first ? Math.min(s.first, ms) : ms; s.last = Math.max(s.last, ms); }
     if (r.name === 'claude_code.api_request' && !isHarness(a.query_source)) {
       const i = +a.input_tokens || 0, o = +a.output_tokens || 0, cr = +a.cache_read_tokens || 0, cw = +a.cache_creation_tokens || 0;
-      s.requests++; s.input += i; s.output += o; s.cacheRead += cr; s.cacheWrite += cw; s.cost += +a.cost_usd || 0;
+      s.requests++; s.input += i; s.output += o; s.cacheRead += cr; s.cacheWrite += cw; s.cost += +a.cost_usd || 0; s.costEst += rowCostEst(a);
       const m = (a.model || 'unknown').replace('claude-', ''); s.models[m] = (s.models[m] || 0) + i + o + cr + cw;
       const q = a.query_source || ''; if (q.startsWith('agent') || q.includes('subagent')) s.subReq++;
       if (q.includes('compact')) s.compactions++;
@@ -75,7 +76,7 @@ function build(rows) {
     all.push({
       id: sid, source: mixSource(s.src), ...gradeFields(s.gr), project: projectOf(sid), first: s.first, last: s.last, minutes,
       requests: s.requests, prompts: s.prompts, typed: s.typed, input: s.input, output: s.output, cacheRead: s.cacheRead, cacheWrite: s.cacheWrite,
-      total, cost: s.cost, tools: s.tools, toolFail: s.toolFail, added: s.added, removed: s.removed, lines: s.added + s.removed,
+      total, cost: s.cost, costEst: s.costEst, tools: s.tools, toolFail: s.toolFail, added: s.added, removed: s.removed, lines: s.added + s.removed,
       commits: s.commits, compactions: s.compactions, subReq: s.subReq,
       yield: c?.yield ?? null, velocity: c?.velocity ?? null, leverage: c?.leverage ?? null, snr: c?.snr ?? null, cls: c?.class ?? null,
       outPerMin: s.output / minutes, tokPerPrompt: s.prompts ? total / s.prompts : null,

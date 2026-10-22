@@ -198,7 +198,7 @@ http.createServer(async (req, res) => {
       catch (e) { console.error(`[board] ${e.message}`); res.writeHead(502).end('{}'); }
       return;
     }
-    if (['/docs/git-counting-rules.md', '/docs/artifact-measurement.md', '/docs/classification.md'].includes(u.pathname)) {
+    if (['/docs/git-counting-rules.md', '/docs/artifact-measurement.md', '/docs/classification.md', '/docs/cost-estimate.md'].includes(u.pathname)) {
       try { res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' }).end(fs.readFileSync(path.join(here, '..', 'docs', path.basename(u.pathname)))); }
       catch { res.writeHead(404).end(); }
       return;

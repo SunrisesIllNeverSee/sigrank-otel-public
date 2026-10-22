@@ -1,6 +1,7 @@
 // All-time history views (ignore the window selector): BlitzStars-style daily sessions log + Recent Milestones.
 // A "day" ends at 05:00 the next morning, so late-night work counts toward the evening it started.
 import { cascade, typedTokens, rowSource, mixSource, isHarness, rowGrade, gradeFields } from './score.mjs';
+import { rowCostEst } from './pricing.mjs';
 
 const DAY_END_HOUR = 5;
 const msOf = (r) => Number(BigInt(r.time || r.end || 0) / 1000000n) || Date.parse(r.attrs?.['event.timestamp'] || '') || 0;
@@ -8,7 +9,7 @@ const dayKey = (ms) => {
   const d = new Date(ms - DAY_END_HOUR * 3600e3);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
-const blank = () => ({ requests: 0, prompts: 0, typed: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0,
+const blank = () => ({ requests: 0, prompts: 0, typed: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, costEst: 0,
   added: 0, removed: 0, tools: 0, commits: 0, models: {}, sessions: new Set(), src: new Set(), gr: new Set(), first: 0, last: 0 });
 const tokens = (t) => t.input + t.output + t.cacheRead + t.cacheWrite;
 const score = (t) => (t.input > 0 || t.output > 0 ? cascade(t.input, t.output, t.cacheWrite, t.cacheRead) : null);
@@ -33,8 +34,8 @@ export function history(rows) {
     d.first ||= ms; d.last = ms; d.src.add(rowSource(r)); d.gr.add(rowGrade(r)); if (a['session.id']) d.sessions.add(a['session.id']);
     if (r.name === 'claude_code.api_request' && !isHarness(a.query_source)) {
       const x = { i: +a.input_tokens || 0, o: +a.output_tokens || 0, cr: +a.cache_read_tokens || 0, cw: +a.cache_creation_tokens || 0 };
-      const n = x.i + x.o + x.cr + x.cw; const m = (a.model || 'unknown').replace('claude-', '');
-      for (const t of [d, run]) { t.requests++; t.input += x.i; t.output += x.o; t.cacheRead += x.cr; t.cacheWrite += x.cw; t.cost += +a.cost_usd || 0; }
+      const n = x.i + x.o + x.cr + x.cw; const m = (a.model || 'unknown').replace('claude-', ''), ce = rowCostEst(a);
+      for (const t of [d, run]) { t.requests++; t.input += x.i; t.output += x.o; t.cacheRead += x.cr; t.cacheWrite += x.cw; t.cost += +a.cost_usd || 0; t.costEst += ce; }
       d.models[m] = (d.models[m] || 0) + n;
       const before = tokens(run) - n;
       for (const s of cross(before, before + n, TOTAL_STEPS)) push(ms, 'tokens', `${big(s)} tokens`, 'all-time Σ');
@@ -65,7 +66,7 @@ export function history(rows) {
     if (!d.requests && !d.prompts) continue;
     const s = score(d); const lines = d.added + d.removed; const tk = tokens(d);
     const row = { day: k, source: mixSource(d.src), ...gradeFields(d.gr), ms: d.last, requests: d.requests, prompts: d.prompts, typed: d.typed, input: d.input, output: d.output,
-      cacheRead: d.cacheRead, cacheWrite: d.cacheWrite, total: tk, cost: d.cost, added: d.added, removed: d.removed, tools: d.tools,
+      cacheRead: d.cacheRead, cacheWrite: d.cacheWrite, total: tk, cost: d.cost, costEst: d.costEst, added: d.added, removed: d.removed, tools: d.tools,
       commits: d.commits, sessions: d.sessions.size, activeMin: (d.last - d.first) / 60000,
       models: Object.entries(d.models).sort((p, q) => q[1] - p[1]).map(([m, n]) => ({ m, n })),
       yield: s?.yield ?? null, cls: s?.class ?? null, cio: d.input ? `${(d.cacheRead / d.input).toFixed(0)}:1:${(d.output / d.input).toFixed(2)}` : '—' };

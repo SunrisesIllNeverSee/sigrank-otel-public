@@ -410,7 +410,7 @@ const GL = {
   'Cache W': 'Cache write: tokens stored so later requests can reuse them.',
   'Cache R': 'Cache read: tokens reused from earlier requests instead of being sent fresh.',
   'Req': 'Requests: how many times Claude Code called the model.',
-  'Cost': 'What the API calls cost, from live telemetry. Not available for history imported from transcripts.',
+  'Cost': 'What the API calls cost. Live telemetry reports it per call. Transcript history records tokens but no cost, so those days are estimated (marked ≈) from tokens × per-model prices and shown apart from the reported amount.',
   'Board rank': 'Your position on the public SignalAF leaderboard for this window, out of everyone listed.',
   '◉ Source': 'Whose numbers the row shows: you, the board leader, or a slice of your own usage.',
   'Prompts': 'How many prompts you typed.',
@@ -489,7 +489,7 @@ const DEGREES = [['AA', 1.75], ['Center', 2.0], ['Power', 251.7], ['Top', 940.1]
 // Normalize a local or leaderboard row into one shape.
 function local(b, t) {
   return b && { cls: b.class, input: b.input, output: t.output, cw: t.cacheWrite, cr: t.cacheRead, total: b.total, perDay: b.perDay,
-    scaleV: b.scaleV, y: b.yield, snr: b.snr, vel: b.velocity, lev: b.leverage, dev: b.dev10x, cio: b.cio, req: t.requests, cost: t.cost,
+    scaleV: b.scaleV, y: b.yield, snr: b.snr, vel: b.velocity, lev: b.leverage, dev: b.dev10x, cio: b.cio, req: t.requests, cost: t.cost, est: t.costEst,
     per1M: b.costPer1M, hit: b.hitRate, con: b.construction };
 }
 function fromBoard(e, wd) {  // wd = the board window's own days (0 = all: no per-day)
@@ -508,7 +508,7 @@ function cells(r) {
   if (!r) return `<td colspan="11" class="c-m" style="text-align:left">no input yet</td>`;
   const b = `<td><span class="badge">${r.cls}</span></td>`;
   if (mode === 'raw') return b + `<td>${big(r.input)}</td><td>${big(r.output)}</td><td>${big(r.cw)}</td><td>${big(r.cr)}</td>
-    <td class="c-total hl">${big(r.total)}</td><td class="c-day">${big(r.perDay)}</td><td>${fmt(r.req)}</td><td>${!r.cost ? '—' : '$' + fmt(r.cost, 2)}</td>
+    <td class="c-total hl">${big(r.total)}</td><td class="c-day">${big(r.perDay)}</td><td>${fmt(r.req)}</td><td>${r.cost ? '$' + fmt(r.cost, 2) + (r.est ? ` <span class="c-m" title="plus estimated cost for transcript days">+≈$${fmt(r.est, 0)}</span>` : '') : r.est ? `<span title="estimated from tokens × per-model prices">≈$${fmt(r.est, 2)}</span>` : '—'}</td>
     <td>${!r.cost ? '—' : '$' + fmt(r.per1M, 2)}</td><td class="c-snr">${pct(r.hit)}</td>`;
   return b + `<td class="c-y hl">${ups(r.y)}</td><td class="c-snr">${pct(r.snr)}</td><td class="c-vel">${fmt(r.vel, 2)}</td>
     <td class="c-lev">${fmt(r.lev, r.lev < 100 ? 1 : 0)}×</td><td class="c-dev">${fmt(r.dev, 2)}</td><td class="c-lev">${r.cio}</td>
@@ -561,15 +561,26 @@ function renderBoard() {
     sb.dataset.tip = odw ? `Your submitted board row is out of date: ${odw}. Opens a preview only; nothing is sent.` : 'Preview the snapshot that would be sent to the SignalAF board. Nothing is sent.'; }
 }
 
+// Cost: reported by live telemetry; transcript days carry tokens only, so their cost is estimated (≈) and never mixed in silently.
+function costTile(t) {
+  const st = S.coverage?.otelStartMs, since = st != null ? new Date(st).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : null;
+  const est = t.costEst || 0, unp = t.unpriced ? ` ${big(t.unpriced)} tokens from models with no known price are left out.` : '';
+  const how = `Earlier days come from transcripts, which record tokens but no cost: estimated as tokens × per-model prices (docs/cost-estimate.md).${unp}`;
+  if (t.cost && est) return ['$' + fmt(t.cost, 2), `+ ≈$${fmt(est, 0)} est.`, pg('mixed', ['reported', 'estimated'],
+    `Reported $${fmt(t.cost, 2)} from live telemetry${since ? ' since ' + since : ''}, plus ≈$${fmt(est, 2)} estimated for the days before. ≈$${fmt(t.cost + est, 2)} in all. ${how}`, 'mixed')];
+  if (t.cost) return ['$' + fmt(t.cost, 2), since && !S.coverage?.full ? 'since ' + since : '', pg('reported', null, `What Claude Code reported for these API calls${since ? ', live since ' + since : ''}.`)];
+  if (est) return ['≈$' + fmt(est, 0), '', pg('estimated', null, how)];
+  return ['—', '', ''];
+}
 function renderStrip() {
   const t = S.total, b = R?.row || null, T = (k, v, sub = '', c = '', gr = '') => `<div class="panel ${c}"><div class="tk">${g(k)}</div><div class="tv">${v}${sub ? ` <small>${sub}</small>` : ''}</div><div class="pgr">${gr}</div></div>`;
   const grand = t.input + t.output + t.cacheRead + t.cacheWrite;
   const tg = pgOf(t), cg = pgOf({ grade: 'computed' }, `Computed from ${days === 1 ? R?.inputs || 'unknown' : 'logged'} token counts.`);
-  const cost = t.grade === 'logged' ? ['—', ''] : ['$' + fmt(t.cost, 2), pg('reported', null, 'OTel rows only: logged rows carry no cost, so this undercounts when the window includes logs.')];
+  const cost = costTile(t);
   document.getElementById('strip').innerHTML = `<div class="pbar">${pipeOf(t, covTip())}<span>${esc(covText())}</span><span>· ${winLabel()} scores: ${days === 1 ? 'computed from live OTel' : 'computed by sigrank from logs'}</span></div>` + (mode === 'raw'
     ? T('∑ Total tokens', big(grand), `${big(grand / (S.windowDays || 1))}/day`, 'grand', tg) + T('Prompts', fmt(t.prompts), '', '', tg)
       + T('Logged input', big(t.input), '', '', tg) + T('Output', big(t.output), '', '', tg) + T('Cache read', big(t.cacheRead), '', '', tg) + T('Cache write', big(t.cacheWrite), '', '', tg)
-      + T('Requests', fmt(t.requests), `${fmt(S.sessionCount)} sess`, '', tg) + T('Cost · live', cost[0], '', '', cost[1])
+      + T('Requests', fmt(t.requests), `${fmt(S.sessionCount)} sess`, '', tg) + T('Cost', cost[0], cost[1], '', cost[2])
     : T('Υ Yield · SigRank', ups(b?.yield), b?.class || '', 'grand y', cg) + T('▲ SNR', pct(b?.snr), '', '', cg) + T('⚡ Velocity', fmt(b?.velocity, 2), '', '', cg)
       + T('⚙ Leverage', b ? fmt(b.leverage, 0) + '×' : '—', '', '', cg) + T('✧ 10×Dev', fmt(b?.dev10x, 2), '', '', cg) + T('Ⅴ Scale V', fmt(b?.scaleV, 2), '', '', cg)
       + T('⋮ C:I:O', b?.cio || '—', '', '', cg) + T('Board rank', B?.you ? `#${B.you.rank}` : '—', B ? `${B.window} · of ${B.field}` : '', '', BOARD_TAG));
@@ -827,7 +838,7 @@ function renderDaily(el) {
       <td><span class="badge">${d.cls ?? '—'}</span></td><td class="c-y">${ups(d.yield)}</td><td class="c-lev">${d.cio}</td><td>${fmt(d.prompts)}</td><td>${fmt(d.requests)}</td>
       <td>${big(d.typed)}</td><td>${big(d.output)}</td><td>${big(d.cacheRead)}</td><td>${big(d.cacheWrite)}</td><td class="c-total">${big(d.total)}</td>
       <td style="width:80px"><span class="tb" style="width:${d.total / mx * 100}%;background:var(--orange)"></span></td>
-      <td>${lines(d)}</td><td>${fmt(d.tools)}</td><td>${fmt(d.sessions)}</td><td>${d.cost ? '$' + fmt(d.cost, 2) : '—'}</td></tr>`
+      <td>${lines(d)}</td><td>${fmt(d.tools)}</td><td>${fmt(d.sessions)}</td><td>${d.cost ? '$' + fmt(d.cost, 2) : d.costEst ? '≈$' + fmt(d.costEst, 2) : '—'}</td></tr>`
       + (openDays.has(d.day) ? `<tr class="xp"><td colspan="16">models: ${d.models.map((m) => `<b class="c-y">${m.m}</b> ${big(m.n)}`).join(' · ')} · active ${mins(d.activeMin)}${d.commits && !noCnt(d) ? ' · ' + d.commits + ' commits' : ''}</td></tr>` : '')).join('')
     + '</tbody></table>';
   el.querySelectorAll('tr[data-d]').forEach((tr) => tr.onclick = () => { const k = tr.dataset.d; openDays.has(k) ? openDays.delete(k) : openDays.add(k); render(); });
@@ -903,7 +914,7 @@ async function openSession(id) {
         <div class="sub">Totals</div>
         <div class="kv"><span>${g('Typed · logged I', 'Typed · logged I')}</span><span>${big(d.typed)} · ${big(d.input)}</span><span>Output</span><span>${big(d.output)}</span>
           <span>Cache read · write</span><span>${big(d.cacheRead)} · ${big(d.cacheWrite)}</span><span>Lines</span><span>${noCnt(d) ? lines(d) : `<span class="c-y">+${fmt(d.added)}</span> / <span class="c-red">−${fmt(d.removed)}</span>`}</span>
-          <span>Tool calls · failed</span><span>${fmt(d.tools)} · ${fmt(d.toolFail)}</span><span>Cost</span><span>${d.cost ? '$' + fmt(d.cost, 2) : '—'}</span></div>
+          <span>Tool calls · failed</span><span>${fmt(d.tools)} · ${fmt(d.toolFail)}</span><span>Cost</span><span>${d.cost ? '$' + fmt(d.cost, 2) : d.costEst ? '≈$' + fmt(d.costEst, 2) : '—'}</span></div>
         <div class="sub">Models</div>
         ${d.models.map((m) => `<div style="display:grid;grid-template-columns:110px 1fr 60px;gap:6px;align-items:center"><span class="lk" data-model="${esc(m.m)}" data-tip="Open this model's detail.">${m.m}</span><span class="tb" style="width:${m.n / mt_ * 100}%;background:var(--lime)"></span><span style="text-align:right">${big(m.n)}</span></div>`).join('')}
         <div class="sub">Top tools</div>

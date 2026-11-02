@@ -1,0 +1,39 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        node: [18, 22]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: node scripts/test-dependency-security.mjs
+      - run: node scripts/test-classify.mjs
+      - run: node scripts/test-operations.mjs
+      - run: node scripts/test-streaming-usage.mjs
+      - name: Receiver and dashboard smoke
+        shell: bash
+        run: |
+          test_dir=$(mktemp -d)
+          node src/receiver.mjs 4319 "$test_dir/otel.jsonl" > "$test_dir/receiver.log" 2>&1 &
+          receiver_pid=$!
+          trap 'kill "$receiver_pid" 2>/dev/null || true; rm -rf "$test_dir"' EXIT
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:4319/ > /dev/null; then break; fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:4319/ > /dev/null
+          node scripts/test-protobuf.mjs 4319 "$test_dir/otel.jsonl"
